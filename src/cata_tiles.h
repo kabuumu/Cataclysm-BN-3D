@@ -1007,6 +1007,7 @@ class cata_tiles
             bool furniture;
             int &subtile;
             int &rotation;
+            bool field = false;
         };
         auto get_orientation( const orientation_request &request ) -> void;
         struct character_layers {

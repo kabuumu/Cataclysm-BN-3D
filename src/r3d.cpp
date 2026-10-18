@@ -46,6 +46,7 @@
 #include "r3d_camera.h"
 #include "r3d_dda.h"
 #include "r3d_entities.h"
+#include "r3d_scene_rules.h"
 #include "r3d_gpu.h"
 #include "r3d_mesh.h"
 #include "rng.h"
@@ -356,6 +357,7 @@ struct light_sampler {
     // Levels above this have no visibility cache of their own (the game only computes up to
     // the viewed level); they take the light of the ground below them.
     int vision_top = OVERMAP_HEIGHT;
+    int view_z = 0;
 
     // Whether any of the eight tiles around p is seen or remembered.
     auto borders_known( const tripoint_bub_ms &p ) const -> bool {
@@ -383,6 +385,9 @@ struct light_sampler {
 
     auto color_at( const tripoint_bub_ms &p ) const -> uint32_t {
         if( !here.inbounds( p ) ) {
+            return pack_light( 0, 0, 0 );
+        }
+        if( hide_overhead_tile( here, p, view_z ) ) {
             return pack_light( 0, 0, 0 );
         }
         // Debug aid: CATA_R3D_FULLBRIGHT=1 shows all loaded geometry regardless of visibility.
@@ -511,6 +516,14 @@ auto update_chunk_light( const update_chunk_light_options &options ) -> void
     }
     for( auto i = size_t( 0 ); i < c.refs.size(); ++i ) {
         const auto &r = c.refs[i];
+        // Decide from the geometry's own tile, before sampling a neighbouring tile's light.
+        // Otherwise a wall side could survive inside an otherwise removed upper storey.
+        if( hide_overhead_tile( sampler.here,
+                                tripoint_bub_ms( base.x() + r.lx, base.y() + r.ly, base.z() ),
+                                sampler.view_z ) ) {
+            c.light[i] = pack_light( 0, 0, 0 );
+            continue;
+        }
         const auto gx = static_cast<int>( std::clamp( r.lx + r.dx + 1, 0, border - 1 ) );
         const auto gy = static_cast<int>( std::clamp( r.ly + r.dy + 1, 0, border - 1 ) );
         auto tile = static_cast<uint32_t>( grid[std::clamp( static_cast<int>( r.dz ), 0,
@@ -1350,7 +1363,7 @@ auto draw( const draw_options &options ) -> bool
     } );
 
     const auto sampler = light_sampler{ .here = here, .vvc = here.get_visibility_variables_cache(), .you = get_avatar(),
-                                        .vision_floor = -OVERMAP_DEPTH, .vision_top = OVERMAP_HEIGHT };
+                                        .vision_floor = -OVERMAP_DEPTH, .vision_top = OVERMAP_HEIGHT, .view_z = view_z };
     const auto frame_light_key = static_cast<uint64_t>( light_key( { .here = here, .origin = origin, .z_lo = z_lo, .z_hi = z_hi } ) );
 
     // The scene is drawn in a frame whose origin is the viewed tile, which keeps floats small.

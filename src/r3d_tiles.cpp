@@ -13,6 +13,8 @@
 #include "catacharset.h"
 #include "map/map.h"
 #include "map/mapdata.h"
+#include "map/field_type.h"
+#include "r3d_scene_rules.h"
 #include "sdltiles.h"
 
 namespace
@@ -99,6 +101,8 @@ std::optional<texture_draw_data>
             symbol = UTF8_getch( mtype_id( request.id )->sym );
         } else if( request.category == C_ITEM && itype_id( request.id ).is_valid() ) {
             symbol = UTF8_getch( itype_id( request.id )->sym );
+        } else if( request.category == C_FIELD && field_type_str_id( request.id ).is_valid() ) {
+            symbol = field_type_str_id( request.id )->get_codepoint();
         }
         if( symbol > 0 && symbol < 256 ) {
             const auto ascii = std::string{ 'A', 'S', 'C', 'I', 'I', '_', char( symbol ), char( -1 ), char( -1 ) };
@@ -164,7 +168,10 @@ auto cata_tiles::get_orientation( const orientation_request &request ) -> void
     auto &subtile = request.subtile;
     auto &rotation = request.rotation;
     auto group = 0;
-    if( request.furniture ) {
+    if( request.field ) {
+        const auto field = r3d::visible_field_at( here, get_avatar(), p );
+        get_rotation_and_subtile( field ? field->connections : 0, rotation, subtile );
+    } else if( request.furniture ) {
         const auto f = here.furn( p );
         if( f->connects( group ) ) { get_furn_connect_values( p, subtile, rotation, group, {} ); }
         else {

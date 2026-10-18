@@ -22,6 +22,8 @@
 #include "mtype.h"
 #include "npc.h"
 #include "r3d_shapes.h"
+#include "r3d_scene_rules.h"
+#include "r3d_decals.h"
 #include "enums.h"
 #include "units_utility.h"
 #include "vehicle/vehicle.h"
@@ -394,19 +396,32 @@ auto build_entity_mesh( const entity_view &view ) -> chunk_mesh
 
     add_vehicles( { .sink = sink, .view = view, .here = here, .you = you } );
 
-    // Items first: top item of every visible tile near the view, standing on its surface.
+    // Fields and items change independently of the terrain mesh, including between turns.
     for( auto z = static_cast<int>( view.z_lo ); z <= view.z_hi; ++z ) {
-        for( auto dy = static_cast<int>( -item_radius ); dy <= item_radius; ++dy ) {
-            for( auto dx = static_cast<int>( -item_radius ); dx <= item_radius; ++dx ) {
+        for( auto dy = -creature_radius; dy <= creature_radius; ++dy ) {
+            for( auto dx = -creature_radius; dx <= creature_radius; ++dx ) {
                 const auto p = tripoint_bub_ms( view.center.x() + dx, view.center.y() + dy, z );
                 if( !here.inbounds( p ) ) {
                     continue;
+                }
+                const auto field = visible_field_at( here, you, p );
+                if( field && field->display_field ) {
+                    auto subtile = 0;
+                    auto rotation = 0;
+                    view.tiles.get_orientation( { .pos = p, .furniture = false, .subtile = subtile,
+                                                  .rotation = rotation, .field = true } );
+                    const auto &sprite = view.cache.named( { .category = C_FIELD, .id = field->id.id().str(),
+                                                           .tiles = view.tiles, .subtile = subtile, .rota = rotation } );
+                    add_ground_decal( { .sink = sink, .tile = sprite, .x = frame_x( p ) - 0.5f,
+                                        .y = frame_y( p ) - 0.5f, .z = frame_z( p ) + floor_height + 0.015f,
+                                        .color = view.light( p ) } );
                 }
                 // Nothing on tiles the player cannot see into, and nothing inside closed
                 // furniture (lockers, cupboards): the flat view shows those once the player
                 // stands next to them, but here the furniture is drawn closed, and its
                 // contents would sit on its top (or float there when the cutaway removes it).
-                if( !here.sees_some_items( p, you ) ||
+                if( std::abs( dx ) > item_radius || std::abs( dy ) > item_radius ||
+                    ( field && !field->display_items ) || !here.sees_some_items( p, you ) ||
                     here.has_flag( "CONTAINER", p ) ) {
                     continue;
                 }
