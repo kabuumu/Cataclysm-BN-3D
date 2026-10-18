@@ -47,6 +47,9 @@
 #include "r3d_dda.h"
 #include "r3d_entities.h"
 #include "r3d_scene_rules.h"
+#include "r3d_shapes.h"
+#include "vehicle/vehicle.h"
+#include "vehicle/vpart_position.h"
 #include "r3d_gpu.h"
 #include "r3d_mesh.h"
 #include "rng.h"
@@ -137,6 +140,8 @@ struct state {
     bool walls_on = false; // whether the cache was given the wall side rules and atlas
     bool thin_walls = true;
     bool plaster_atlas = false; // whether painted walls take the atlas plaster (see the option)
+    bool was_controlling_vehicle = false;
+    float last_vehicle_yaw = 0.0f;
 };
 
 auto st() -> state &
@@ -340,6 +345,9 @@ auto surface_height( state &s, const map &here, const tripoint_bub_ms &p ) -> fl
 {
     if( !here.inbounds( p ) ) {
         return floor_height;
+    }
+    if( here.veh_at( p ) ) {
+        return floor_height + chassis_floor_h;
     }
     const auto t = shape( s.cache.terrain( { .id = here.ter( p ), .tiles = *tilecontext } ).sh );
     if( t.kind != shape_kind::floor ) {
@@ -1151,6 +1159,8 @@ auto reset() -> void
     s.cam = camera();
     s.pan = vec3{};
     s.env_camera_applied = false;
+    s.was_controlling_vehicle = false;
+    s.last_vehicle_yaw = 0.0f;
 }
 
 auto contains( float x, float y ) -> bool
@@ -1370,6 +1380,39 @@ auto draw( const draw_options &options ) -> bool
     const auto sampler = light_sampler{ .here = here, .vvc = here.get_visibility_variables_cache(), .you = get_avatar(),
                                         .vision_floor = -OVERMAP_DEPTH, .vision_top = OVERMAP_HEIGHT, .view_z = view_z };
     const auto frame_light_key = static_cast<uint64_t>( light_key( { .here = here, .origin = origin, .z_lo = z_lo, .z_hi = z_hi } ) );
+    const auto &you = get_avatar();
+    const auto vp = here.veh_at( you.bub_pos() );
+    const auto is_controlling = vp && vp->vehicle().player_in_control( you );
+    if( is_controlling ) {
+        const auto veh_face = vp->vehicle().face.dir();
+        auto veh_yaw = static_cast<float>( units::to_radians( 270_degrees - veh_face ) );
+        constexpr auto two_pi = static_cast<float>( 2.0 * M_PI );
+        veh_yaw = std::fmod( veh_yaw, two_pi );
+        if( veh_yaw > static_cast<float>( M_PI ) ) {
+            veh_yaw -= two_pi;
+        } else if( veh_yaw < static_cast<float>( -M_PI ) ) {
+            veh_yaw += two_pi;
+        }
+
+        if( !s.was_controlling_vehicle ) {
+            s.cam.yaw = veh_yaw;
+            s.last_vehicle_yaw = veh_yaw;
+            s.was_controlling_vehicle = true;
+        } else {
+            auto delta = veh_yaw - s.last_vehicle_yaw;
+            while( delta > static_cast<float>( M_PI ) ) {
+                delta -= two_pi;
+            }
+            while( delta < static_cast<float>( -M_PI ) ) {
+                delta += two_pi;
+            }
+            s.cam.yaw += delta;
+            s.cam.yaw = std::fmod( s.cam.yaw, two_pi );
+            s.last_vehicle_yaw = veh_yaw;
+        }
+    } else {
+        s.was_controlling_vehicle = false;
+    }
 
     // The scene is drawn in a frame whose origin is the viewed tile, which keeps floats small.
     s.cam.target = tile_to_world( { .x = 0.5f, .y = 0.5f, .z = 0.5f } ) + s.pan;

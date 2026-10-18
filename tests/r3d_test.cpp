@@ -9,6 +9,7 @@
 #include "r3d_math.h"
 #include "r3d_shapes.h"
 #include "r3d_wall_rules.h"
+#include "units_angle.h"
 
 namespace
 {
@@ -702,4 +703,129 @@ TEST_CASE( "r3d_wall_atlas_cells", "[r3d]" )
     CHECK( approx( fifth.v0, 32.5f / 96.0f ) );
     CHECK_FALSE( r3d::atlas_cell( { .index = 12, .cell = 32, .atlas_w = 128, .atlas_h = 96 } ).valid );
     CHECK_FALSE( r3d::atlas_cell( { .index = -1, .cell = 32, .atlas_w = 128, .atlas_h = 96 } ).valid );
+}
+
+TEST_CASE( "r3d_vehicle_tiered_height_constants", "[r3d]" )
+{
+    CHECK( approx( r3d::chassis_floor_h, 0.28f ) );
+    CHECK( approx( r3d::vehicle_body_h, 0.55f ) );
+    CHECK( approx( r3d::vehicle_cabin_h, 0.85f ) );
+    CHECK( approx( r3d::floor_height + r3d::chassis_floor_h, 0.38f ) );
+    CHECK( r3d::floor_height < r3d::chassis_floor_h );
+    CHECK( r3d::chassis_floor_h < r3d::vehicle_body_h );
+    CHECK( r3d::vehicle_body_h < r3d::vehicle_cabin_h );
+}
+
+TEST_CASE( "r3d_vehicle_heading_to_camera_yaw", "[r3d]" )
+{
+    // CDDA vehicle angles: 270 deg is North (yaw = 0), 0 deg is East (yaw = -pi/2),
+    // 90 deg is South (yaw = pi), 180 deg is West (yaw = +pi/2).
+    const auto to_yaw = []( units::angle veh_face ) -> float {
+        auto yaw = static_cast<float>( units::to_radians( 270_degrees - veh_face ) );
+        constexpr auto two_pi = static_cast<float>( 2.0 * M_PI );
+        yaw = std::fmod( yaw, two_pi );
+        if( yaw > static_cast<float>( M_PI ) ) {
+            yaw -= two_pi;
+        } else if( yaw < static_cast<float>( -M_PI ) ) {
+            yaw += two_pi;
+        }
+        return yaw;
+    };
+
+    CHECK( approx( to_yaw( 270_degrees ), 0.0f ) );
+    CHECK( approx( to_yaw( 0_degrees ), static_cast<float>( -M_PI * 0.5 ) ) );
+    CHECK( approx( std::abs( to_yaw( 90_degrees ) ), static_cast<float>( M_PI ) ) );
+    CHECK( approx( to_yaw( 180_degrees ), static_cast<float>( M_PI * 0.5 ) ) );
+
+    // Camera facing test: with yaw looking North, forward_eighths() must return 0
+    r3d::camera cam;
+    cam.yaw = to_yaw( 270_degrees );
+    CHECK( cam.forward_eighths() == 0 );
+
+    // Yaw looking East (2)
+    cam.yaw = to_yaw( 0_degrees );
+    CHECK( cam.forward_eighths() == 2 );
+
+    // Yaw looking South (4)
+    cam.yaw = to_yaw( 90_degrees );
+    CHECK( cam.forward_eighths() == 4 );
+
+    // Yaw looking West (6)
+    cam.yaw = to_yaw( 180_degrees );
+    CHECK( cam.forward_eighths() == 6 );
+
+    // Angle delta wrapping across boundary
+    const auto wrap_delta = []( float delta ) -> float {
+        constexpr auto two_pi = static_cast<float>( 2.0 * M_PI );
+        while( delta > static_cast<float>( M_PI ) ) {
+            delta -= two_pi;
+        }
+        while( delta < static_cast<float>( -M_PI ) ) {
+            delta += two_pi;
+        }
+        return delta;
+    };
+
+    const auto yaw_south_pos = static_cast<float>( M_PI - 0.05f );
+    const auto yaw_south_neg = static_cast<float>( -M_PI + 0.05f );
+    CHECK( approx( wrap_delta( yaw_south_neg - yaw_south_pos ), 0.1f ) );
+    CHECK( approx( wrap_delta( yaw_south_pos - yaw_south_neg ), -0.1f ) );
+}
+
+TEST_CASE( "r3d_vehicle_rigid_body_local_to_scene", "[r3d]" )
+{
+    const auto pivot_sx = 15.5f;
+    const auto pivot_sy = 25.5f;
+
+    auto transform = [pivot_sx, pivot_sy]( float f, float r, units::angle face_dir ) -> std::array<float, 2> {
+        const auto theta = static_cast<float>( units::to_radians( face_dir ) );
+        const auto cos_th = static_cast<float>( std::cos( theta ) );
+        const auto sin_th = static_cast<float>( std::sin( theta ) );
+        return std::array<float, 2>{
+            pivot_sx + f * cos_th - r * sin_th,
+            pivot_sy + f * sin_th + r * cos_th
+        };
+    };
+
+    // Facing North (270 deg):
+    // forward is North (-y in tile space), right is East (+x in tile space)
+    const auto p_north_fwd = transform( 2.0f, 0.0f, 270_degrees );
+    CHECK( approx( p_north_fwd[0], pivot_sx ) );
+    CHECK( approx( p_north_fwd[1], pivot_sy - 2.0f ) );
+
+    const auto p_north_right = transform( 0.0f, 3.0f, 270_degrees );
+    CHECK( approx( p_north_right[0], pivot_sx + 3.0f ) );
+    CHECK( approx( p_north_right[1], pivot_sy ) );
+
+    // Facing East (0 deg):
+    // forward is East (+x in tile space), right is South (+y in tile space)
+    const auto p_east_fwd = transform( 2.0f, 0.0f, 0_degrees );
+    CHECK( approx( p_east_fwd[0], pivot_sx + 2.0f ) );
+    CHECK( approx( p_east_fwd[1], pivot_sy ) );
+
+    const auto p_east_right = transform( 0.0f, 3.0f, 0_degrees );
+    CHECK( approx( p_east_right[0], pivot_sx ) );
+    CHECK( approx( p_east_right[1], pivot_sy + 3.0f ) );
+
+    // Facing South (90 deg):
+    // forward is South (+y in tile space), right is West (-x in tile space)
+    const auto p_south_fwd = transform( 2.0f, 0.0f, 90_degrees );
+    CHECK( approx( p_south_fwd[0], pivot_sx ) );
+    CHECK( approx( p_south_fwd[1], pivot_sy + 2.0f ) );
+
+    // Rigid-body invariant: distance between local points is preserved under rotation
+    const auto pt_a_local = std::array<float, 2>{ 1.5f, -0.8f };
+    const auto pt_b_local = std::array<float, 2>{ -2.0f, 1.2f };
+    const auto local_dx = pt_a_local[0] - pt_b_local[0];
+    const auto local_dy = pt_a_local[1] - pt_b_local[1];
+    const auto local_dist = std::sqrt( local_dx * local_dx + local_dy * local_dy );
+
+    for( auto deg = 0; deg < 360; deg += 15 ) {
+        const auto a = transform( pt_a_local[0], pt_a_local[1], units::from_degrees( deg ) );
+        const auto b = transform( pt_b_local[0], pt_b_local[1], units::from_degrees( deg ) );
+        const auto world_dx = a[0] - b[0];
+        const auto world_dy = a[1] - b[1];
+        const auto world_dist = std::sqrt( world_dx * world_dx + world_dy * world_dy );
+        CHECK( approx( world_dist, local_dist, 1e-4f ) );
+    }
 }

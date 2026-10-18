@@ -6,9 +6,14 @@
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <map>
+#include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "units_angle.h"
 
 #include "avatar.h"
 #include "debug.h"
@@ -27,6 +32,7 @@
 #include "enums.h"
 #include "units_utility.h"
 #include "vehicle/vehicle.h"
+#include "vehicle/vehicle_part.h"
 #include "vehicle/veh_type.h"
 #include "vehicle/vpart_position.h"
 
@@ -42,7 +48,6 @@ constexpr auto item_radius = static_cast<int>
                              ( 20 );     // and for items (every tile costs a map lookup)
 constexpr auto marker_box_height = static_cast<float>( 1.0f );
 constexpr auto item_size = static_cast<float>( 0.6f );
-constexpr auto vehicle_body_height = static_cast<float>( 0.25f );
 
 // Light colour with a zero alpha: no depth pull (see r3d_block.vert), for everything in the
 // entity mesh that is not the top of a billboard.
@@ -254,62 +259,88 @@ auto emit_marker_box( const emit_marker_box_options &options ) -> void
 }
 
 
-// Vehicle art is a plan view. Keep it in the map plane, raised on a shallow body,
-// rather than turning every part towards the camera independently.
-struct emit_vehicle_part_options {
-    quad_sink &sink;
-    const tile_info &info;
-    float x;
-    float y;
-    float z;
-    uint32_t color;
+struct point_f {
+    float x = 0.0f;
+    float y = 0.0f;
 };
 
-auto emit_vehicle_part( const emit_vehicle_part_options &options ) -> void
+struct to_scene_transform {
+    float pivot_sx = 0.0f;
+    float pivot_sy = 0.0f;
+    float cos_th = 1.0f;
+    float sin_th = 0.0f;
+
+    auto apply( float local_forward, float local_right ) const -> point_f {
+        return {
+            .x = pivot_sx + local_forward * cos_th - local_right * sin_th,
+            .y = pivot_sy + local_forward * sin_th + local_right * cos_th
+        };
+    }
+};
+
+struct emit_vehicle_tile_quads_options {
+    quad_sink &sink;
+    const tile_info &info;
+    float rel_forward = 0.0f;
+    float rel_right = 0.0f;
+    float z = 0.0f;
+    uint32_t color = 0;
+    to_scene_transform transform;
+};
+
+auto emit_vehicle_tile_quads( const emit_vehicle_tile_quads_options &options ) -> void
 {
     auto &sink = options.sink;
     const auto &info = options.info;
-    auto x = options.x;
-    auto y = options.y;
-    auto z = options.z;
-    auto color = options.color;
+    const auto rel_forward = options.rel_forward;
+    const auto rel_right = options.rel_right;
+    const auto z = options.z;
+    const auto color = options.color;
+    const auto &transform = options.transform;
 
     auto lift = static_cast<float>( 0.0f );
-    for( const sprite_ref *sprite : {
-             &info.backdrop, &info.sprite
-         } ) {
+    for( const sprite_ref *sprite : { &info.backdrop, &info.sprite } ) {
         if( !sprite->valid ) {
             continue;
         }
         const auto &s = *sprite;
-        // Vehicle tiles can overhang their cell (doors and windscreens often use
-        // 32x48/64 artwork). Preserve the regular renderer's size and offsets.
-        const auto x0 = static_cast<float>( x + s.offset_x );
-        const auto y0 = static_cast<float>( y + s.offset_y );
-        auto top = corners_t{{ { x0, y0, z + vehicle_body_height + lift },
-                { x0 + s.size_x, y0, z + vehicle_body_height + lift },
-                { x0 + s.size_x, y0 + s.size_y, z + vehicle_body_height + lift },
-                { x0, y0 + s.size_y, z + vehicle_body_height + lift }
-            }
-        };
-        for( auto &corner : top ) {
-            for( auto turn = static_cast<int>( 0 ); turn < ( s.quarter_turns & 3 ); ++turn ) {
-                const auto dx = static_cast<float>( corner[0] - x - 0.5f );
-                const auto dy = static_cast<float>( corner[1] - y - 0.5f );
-                corner[0] = x + 0.5f - dy;
-                corner[1] = y + 0.5f + dx;
-            }
+        const auto r_left = static_cast<float>( rel_right - 0.5f + s.offset_x );
+        const auto r_right = static_cast<float>( r_left + s.size_x );
+        const auto f_top = static_cast<float>( rel_forward + 0.5f - s.offset_y );
+        const auto f_bot = static_cast<float>( f_top - s.size_y );
+
+        const auto p0 = transform.apply( f_top, r_left );
+        const auto p1 = transform.apply( f_top, r_right );
+        const auto p2 = transform.apply( f_bot, r_right );
+        const auto p3 = transform.apply( f_bot, r_left );
+        const auto cur_z = static_cast<float>( z + lift );
+        const auto corners = corners_t{{
+            { p0.x, p0.y, cur_z },
+            { p1.x, p1.y, cur_z },
+            { p2.x, p2.y, cur_z },
+            { p3.x, p3.y, cur_z }
+        }};
+        const auto left_u = static_cast<float>( s.flip ? s.u1 : s.u0 );
+        const auto right_u = static_cast<float>( s.flip ? s.u0 : s.u1 );
+        const auto base_uv = uvs_t{{ { left_u, s.v0 }, { right_u, s.v0 }, { right_u, s.v1 }, { left_u, s.v1 } }};
+        auto uv = uvs_t{};
+        for( auto i = size_t( 0 ); i < 4; ++i ) {
+            uv[i] = base_uv[( i + 4 - static_cast<size_t>( s.quarter_turns & 3 ) ) % 4];
         }
-        const auto left = static_cast<float>( s.flip ? s.u1 : s.u0 );
-        const auto right = static_cast<float>( s.flip ? s.u0 : s.u1 );
-        const auto uv = uvs_t{{ { left, s.v0 }, { right, s.v0 }, { right, s.v1 }, { left, s.v1 } }};
-        sink.add_colored( { .sprite = s, .corners = top, .uvs = uv, .ref = light_ref{}, .color = no_pull( color ) } );
-        emit_marker_box( { .sink = sink, .s = s, .x0 = x - lift, .y0 = y - lift, .z0 = z, .z1 = z + vehicle_body_height + lift, .color = color,
-                           .width = 1.0f + 2.0f * lift } );
-        // The foreground must pass the depth test over the background on every face.
+        sink.add_colored( { .sprite = s, .corners = corners, .uvs = uv, .ref = light_ref{}, .color = no_pull( color ) } );
         lift += 0.004f;
     }
 }
+
+struct vehicle_cell_data {
+    tripoint_mnt_veh mount;
+    int main_part_idx = -1;
+    int roof_part_idx = -1;
+    bool has_roof = false;
+    bool show_roof = false;
+    float height = 0.0f;
+    uint32_t light = 0;
+};
 
 struct add_vehicles_options {
     quad_sink &sink;
@@ -327,40 +358,291 @@ auto add_vehicles( const add_vehicles_options &options ) -> void
 
     for( const wrapped_vehicle &wrapped : here.get_vehicles() ) {
         auto &veh = *wrapped.v;
+        const auto veh_bub = veh.bub_ms_location();
+        const auto veh_z = veh_bub.z();
+        if( veh_z < view.z_lo || veh_z > view.z_hi ) {
+            continue;
+        }
 
-        for( const tripoint_abs_ms &absolute : veh.get_points() ) {
-            const auto p = tripoint_bub_ms( abs_to_bub( absolute ) );
-            if( !here.inbounds( p ) || p.z() < view.z_lo || p.z() > view.z_hi ||
-                !you.sees( p ) ) {
+        const auto pivot_mnt = veh.pivot_point();
+        const auto pivot_sx = static_cast<float>( veh_bub.x() - view.center.x() ) + 0.5f;
+        const auto pivot_sy = static_cast<float>( veh_bub.y() - view.center.y() ) + 0.5f;
+        const auto theta = static_cast<float>( units::to_radians( veh.face.dir() ) );
+        const auto cos_th = static_cast<float>( std::cos( theta ) );
+        const auto sin_th = static_cast<float>( std::sin( theta ) );
+
+        const auto transform = to_scene_transform{
+            .pivot_sx = pivot_sx,
+            .pivot_sy = pivot_sy,
+            .cos_th = cos_th,
+            .sin_th = sin_th
+        };
+
+        const auto z_base = static_cast<float>( static_cast<float>( veh_z - view.center.z() ) + floor_height + 0.02f );
+        const auto player_inside_this_veh = you.in_vehicle && here.veh_at( you.bub_pos() ) && &here.veh_at( you.bub_pos() )->vehicle() == &veh;
+
+        auto occupied_mounts = std::vector<tripoint_mnt_veh>{};
+        auto unique_mounts = std::set<tripoint_mnt_veh>{};
+        for( auto i = 0; i < veh.part_count(); ++i ) {
+            const auto &vp = veh.cpart( i );
+            if( !vp.removed && unique_mounts.insert( vp.mount ).second ) {
+                occupied_mounts.push_back( vp.mount );
+            }
+        }
+
+        auto cells = std::map<point, vehicle_cell_data>{};
+        constexpr auto ON_ROOF_Z = 9;
+
+        for( const tripoint_mnt_veh &mount : occupied_mounts ) {
+            const auto p = veh.mount_to_bubble( mount );
+            if( !here.inbounds( p ) || p.z() < view.z_lo || p.z() > view.z_hi ) {
                 continue;
             }
             const auto light = static_cast<uint32_t>( view.light( p ) );
             if( light == pack_light( 0, 0, 0 ) ) {
                 continue;
             }
-            const auto part = optional_vpart_position( here.veh_at( p ) );
-            if( !part || &part->vehicle() != &veh ) {
+            const auto parts_in_cell = veh.parts_at_relative( mount, true );
+            if( parts_in_cell.empty() ) {
                 continue;
             }
-            auto modifier = char{};
-            auto part_index = part->part_index();
-            const auto &id = veh.part_id_string( part_index, false, modifier );
-            if( id.is_null() ) { continue; }
-            const auto subtile = modifier == 1 ? open_ : modifier == 2 ? broken : 0;
-            const auto facing = tileray( veh.part_display_direction( part_index, false ) );
-            const auto rotation = 3 - facing.dir4();
-            const auto &sprite = view.cache.named( { .category = C_VEHICLE_PART, .id = "vp_" + id.str(), .tiles = view.tiles, .subtile = subtile,
-                                                   .rota = rotation } );
-            const auto x = static_cast<float>( p.x() - view.center.x() );
-            const auto y = static_cast<float>( p.y() - view.center.y() );
-            const auto z = static_cast<float>( static_cast<float>( p.z() - view.center.z() ) + view.surface(
-                                                   p ) + 0.02f );
-            emit_vehicle_part( { .sink = sink, .info = sprite, .x = x, .y = y, .z = z, .color = light } );
-            const auto cargo = part.part_with_feature( "CARGO", true );
-            if( cargo && !veh.get_items( cargo->part_index() ).empty() ) {
-                const auto &highlight = view.cache.named( { .category = C_NONE, .id = "highlight", .tiles = view.tiles } );
-                emit_flat( { .sink = sink, .sprite = highlight, .cx = x + 0.5f, .cy = y + 0.5f, .z = z + vehicle_body_height + 0.02f,
-                             .color = pack_light( 255, 255, 255 ), .size = 1.0f } );
+
+            auto data = vehicle_cell_data{
+                .mount = mount,
+                .main_part_idx = -1,
+                .roof_part_idx = -1,
+                .has_roof = false,
+                .show_roof = false,
+                .height = vehicle_body_h,
+                .light = light
+            };
+
+            auto is_tall_cabin = false;
+            auto is_interior = false;
+
+            for( const auto p_idx : parts_in_cell ) {
+                const auto &vp = veh.cpart( p_idx );
+                const auto &vpi = veh.part_info( p_idx );
+                if( !vp.is_broken() && ( veh.part_flag( p_idx, "ROOF" ) || vpi.location == "on_roof" ) ) {
+                    data.has_roof = true;
+                    if( data.roof_part_idx == -1 ) {
+                        data.roof_part_idx = p_idx;
+                    }
+                }
+                if( veh.part_flag( p_idx, "WINDSHIELD" ) || veh.part_flag( p_idx, "OPAQUE" ) ||
+                    ( veh.part_flag( p_idx, "OBSTACLE" ) && !vp.open ) ) {
+                    is_tall_cabin = true;
+                }
+                if( veh.part_flag( p_idx, "BOARDABLE" ) || veh.part_flag( p_idx, "AISLE" ) ||
+                    veh.part_flag( p_idx, "SEAT" ) || veh.part_flag( p_idx, "BED" ) ||
+                    ( veh.part_flag( p_idx, "OPENABLE" ) && vp.open ) ) {
+                    is_interior = true;
+                }
+                if( vpi.z_order < ON_ROOF_Z ) {
+                    if( data.main_part_idx == -1 || vpi.z_order > veh.part_info( data.main_part_idx ).z_order ) {
+                        data.main_part_idx = p_idx;
+                    }
+                }
+            }
+            if( data.main_part_idx == -1 ) {
+                data.main_part_idx = parts_in_cell.front();
+            }
+
+            if( !data.has_roof && vpart_position( const_cast<vehicle&>( veh ), data.main_part_idx ).is_inside() ) {
+                data.has_roof = true;
+            }
+
+            data.show_roof = data.has_roof;
+            if( player_inside_this_veh && view.center.z() <= veh_z && is_interior ) {
+                data.show_roof = false;
+            }
+
+            if( data.show_roof && data.has_roof ) {
+                data.height = vehicle_cabin_h;
+            } else if( is_tall_cabin ) {
+                data.height = vehicle_cabin_h;
+            } else if( is_interior ) {
+                data.height = chassis_floor_h;
+            } else {
+                data.height = vehicle_body_h;
+            }
+
+            cells[point( mount.x(), mount.y() )] = data;
+        }
+
+        for( const auto &[pt, cell] : cells ) {
+            const auto rel_forward = static_cast<float>( cell.mount.x() - pivot_mnt.x() );
+            const auto rel_right = static_cast<float>( cell.mount.y() - pivot_mnt.y() );
+
+            auto main_sprite_opt = std::optional<std::reference_wrapper<const tile_info>>{};
+            if( cell.main_part_idx >= 0 ) {
+                auto modifier = char{ 0 };
+                const auto &id = veh.part_id_string( cell.main_part_idx, false, modifier );
+                if( !id.is_null() ) {
+                    const auto subtile = modifier == 1 ? open_ : modifier == 2 ? broken : 0;
+                    auto rota = 0;
+                    if( veh.cpart( cell.main_part_idx ).direction != 0_degrees ) {
+                        const auto dir_deg = static_cast<int>( std::lround( units::to_degrees( veh.cpart( cell.main_part_idx ).direction ) ) );
+                        rota = ( ( dir_deg / 90 ) % 4 + 4 ) % 4;
+                    }
+                    main_sprite_opt = view.cache.named( { .category = C_VEHICLE_PART, .id = "vp_" + id.str(),
+                                                         .tiles = view.tiles, .subtile = subtile, .rota = rota } );
+                }
+            }
+
+            auto roof_sprite_opt = std::optional<std::reference_wrapper<const tile_info>>{};
+            if( cell.show_roof && cell.has_roof ) {
+                if( cell.roof_part_idx >= 0 ) {
+                    auto modifier = char{ 0 };
+                    const auto &id = veh.part_id_string( cell.roof_part_idx, true, modifier );
+                    if( !id.is_null() ) {
+                        const auto subtile = modifier == 1 ? open_ : modifier == 2 ? broken : 0;
+                        auto rota = 0;
+                        if( veh.cpart( cell.roof_part_idx ).direction != 0_degrees ) {
+                            const auto dir_deg = static_cast<int>( std::lround( units::to_degrees( veh.cpart( cell.roof_part_idx ).direction ) ) );
+                            rota = ( ( dir_deg / 90 ) % 4 + 4 ) % 4;
+                        }
+                        roof_sprite_opt = view.cache.named( { .category = C_VEHICLE_PART, .id = "vp_" + id.str(),
+                                                             .tiles = view.tiles, .subtile = subtile, .rota = rota } );
+                    }
+                }
+                if( !roof_sprite_opt.has_value() || !roof_sprite_opt->get().main().valid ) {
+                    const auto &fallback = view.cache.named( { .category = C_VEHICLE_PART, .id = "vp_roof",
+                                                              .tiles = view.tiles, .subtile = 0, .rota = 0 } );
+                    if( fallback.main().valid ) {
+                        roof_sprite_opt = fallback;
+                    }
+                }
+            }
+
+            if( cell.show_roof && cell.has_roof && roof_sprite_opt.has_value() && roof_sprite_opt->get().main().valid ) {
+                emit_vehicle_tile_quads( { .sink = sink, .info = roof_sprite_opt->get(), .rel_forward = rel_forward,
+                                           .rel_right = rel_right, .z = z_base + vehicle_cabin_h, .color = cell.light,
+                                           .transform = transform } );
+            } else if( main_sprite_opt.has_value() && main_sprite_opt->get().main().valid ) {
+                emit_vehicle_tile_quads( { .sink = sink, .info = main_sprite_opt->get(), .rel_forward = rel_forward,
+                                           .rel_right = rel_right, .z = z_base + cell.height, .color = cell.light,
+                                           .transform = transform } );
+            }
+
+            const auto *side_spr = ( roof_sprite_opt.has_value() && roof_sprite_opt->get().main().valid )
+                                   ? &roof_sprite_opt->get().main()
+                                   : ( main_sprite_opt.has_value()
+                                       ? ( main_sprite_opt->get().sprite.valid
+                                           ? &main_sprite_opt->get().sprite
+                                           : ( main_sprite_opt->get().backdrop.valid ? &main_sprite_opt->get().backdrop : nullptr ) )
+                                       : nullptr );
+
+            if( side_spr && side_spr->valid ) {
+                const auto &s = *side_spr;
+                const auto fx = static_cast<float>( std::clamp( ( s.opaque_x0 + s.opaque_x1 ) * 0.5f, 0.05f, 0.95f ) );
+                const auto fy = static_cast<float>( std::clamp( s.opaque_y0 * 0.4f + s.opaque_y1 * 0.6f, 0.05f, 0.95f ) );
+                const auto u_mid = static_cast<float>( s.u0 + ( s.u1 - s.u0 ) * fx );
+                const auto v_mid = static_cast<float>( s.v0 + ( s.v1 - s.v0 ) * fy );
+                const auto side_uv = uvs_t{{ { u_mid, v_mid }, { u_mid, v_mid }, { u_mid, v_mid }, { u_mid, v_mid } }};
+                const auto side_color = no_pull( cell.light );
+
+                // 1. Front: (x + 1, y)
+                {
+                    auto h_neighbor = 0.0f;
+                    const auto nit = cells.find( point( cell.mount.x() + 1, cell.mount.y() ) );
+                    if( nit != cells.end() ) {
+                        h_neighbor = nit->second.height;
+                    }
+                    if( cell.height > h_neighbor ) {
+                        const auto z_top = static_cast<float>( z_base + cell.height );
+                        const auto z_bot = static_cast<float>( z_base + h_neighbor );
+                        const auto f = static_cast<float>( rel_forward + 0.5f );
+                        const auto p0 = transform.apply( f, rel_right + 0.5f );
+                        const auto p1 = transform.apply( f, rel_right - 0.5f );
+                        const auto c = corners_t{{
+                            { p0.x, p0.y, z_top }, { p1.x, p1.y, z_top }, { p1.x, p1.y, z_bot }, { p0.x, p0.y, z_bot }
+                        }};
+                        sink.add_colored( { .sprite = s, .corners = c, .uvs = side_uv, .ref = light_ref{}, .color = side_color } );
+                    }
+                }
+                // 2. Back: (x - 1, y)
+                {
+                    auto h_neighbor = 0.0f;
+                    const auto nit = cells.find( point( cell.mount.x() - 1, cell.mount.y() ) );
+                    if( nit != cells.end() ) {
+                        h_neighbor = nit->second.height;
+                    }
+                    if( cell.height > h_neighbor ) {
+                        const auto z_top = static_cast<float>( z_base + cell.height );
+                        const auto z_bot = static_cast<float>( z_base + h_neighbor );
+                        const auto f = static_cast<float>( rel_forward - 0.5f );
+                        const auto p0 = transform.apply( f, rel_right - 0.5f );
+                        const auto p1 = transform.apply( f, rel_right + 0.5f );
+                        const auto c = corners_t{{
+                            { p0.x, p0.y, z_top }, { p1.x, p1.y, z_top }, { p1.x, p1.y, z_bot }, { p0.x, p0.y, z_bot }
+                        }};
+                        sink.add_colored( { .sprite = s, .corners = c, .uvs = side_uv, .ref = light_ref{}, .color = side_color } );
+                    }
+                }
+                // 3. Right: (x, y + 1)
+                {
+                    auto h_neighbor = 0.0f;
+                    const auto nit = cells.find( point( cell.mount.x(), cell.mount.y() + 1 ) );
+                    if( nit != cells.end() ) {
+                        h_neighbor = nit->second.height;
+                    }
+                    if( cell.height > h_neighbor ) {
+                        const auto z_top = static_cast<float>( z_base + cell.height );
+                        const auto z_bot = static_cast<float>( z_base + h_neighbor );
+                        const auto r = static_cast<float>( rel_right + 0.5f );
+                        const auto p0 = transform.apply( rel_forward - 0.5f, r );
+                        const auto p1 = transform.apply( rel_forward + 0.5f, r );
+                        const auto c = corners_t{{
+                            { p0.x, p0.y, z_top }, { p1.x, p1.y, z_top }, { p1.x, p1.y, z_bot }, { p0.x, p0.y, z_bot }
+                        }};
+                        sink.add_colored( { .sprite = s, .corners = c, .uvs = side_uv, .ref = light_ref{}, .color = side_color } );
+                    }
+                }
+                // 4. Left: (x, y - 1)
+                {
+                    auto h_neighbor = 0.0f;
+                    const auto nit = cells.find( point( cell.mount.x(), cell.mount.y() - 1 ) );
+                    if( nit != cells.end() ) {
+                        h_neighbor = nit->second.height;
+                    }
+                    if( cell.height > h_neighbor ) {
+                        const auto z_top = static_cast<float>( z_base + cell.height );
+                        const auto z_bot = static_cast<float>( z_base + h_neighbor );
+                        const auto r = static_cast<float>( rel_right - 0.5f );
+                        const auto p0 = transform.apply( rel_forward + 0.5f, r );
+                        const auto p1 = transform.apply( rel_forward - 0.5f, r );
+                        const auto c = corners_t{{
+                            { p0.x, p0.y, z_top }, { p1.x, p1.y, z_top }, { p1.x, p1.y, z_bot }, { p0.x, p0.y, z_bot }
+                        }};
+                        sink.add_colored( { .sprite = s, .corners = c, .uvs = side_uv, .ref = light_ref{}, .color = side_color } );
+                    }
+                }
+            }
+
+            // Cargo highlight
+            if( cell.main_part_idx >= 0 ) {
+                const auto cargo = vpart_position( veh, cell.main_part_idx ).part_with_feature( "CARGO", true );
+                if( cargo && !veh.get_items( cargo->part_index() ).empty() ) {
+                    const auto &highlight = view.cache.named( { .category = C_NONE, .id = "highlight", .tiles = view.tiles } );
+                    if( highlight.main().valid ) {
+                        const auto f_top = static_cast<float>( rel_forward + 0.5f );
+                        const auto f_bot = static_cast<float>( rel_forward - 0.5f );
+                        const auto r_left = static_cast<float>( rel_right - 0.5f );
+                        const auto r_right = static_cast<float>( rel_right + 0.5f );
+                        const auto p0 = transform.apply( f_top, r_left );
+                        const auto p1 = transform.apply( f_top, r_right );
+                        const auto p2 = transform.apply( f_bot, r_right );
+                        const auto p3 = transform.apply( f_bot, r_left );
+                        const auto cur_z = static_cast<float>( z_base + cell.height + 0.02f );
+                        const auto c = corners_t{{
+                            { p0.x, p0.y, cur_z }, { p1.x, p1.y, cur_z }, { p2.x, p2.y, cur_z }, { p3.x, p3.y, cur_z }
+                        }};
+                        const auto &hl = highlight.main();
+                        const auto uv = uvs_t{{ { hl.u0, hl.v0 }, { hl.u1, hl.v0 }, { hl.u1, hl.v1 }, { hl.u0, hl.v1 } }};
+                        sink.add_colored( { .sprite = hl, .corners = c, .uvs = uv, .ref = light_ref{}, .color = pack_light( 255, 255, 255 ) } );
+                    }
+                }
             }
         }
     }
