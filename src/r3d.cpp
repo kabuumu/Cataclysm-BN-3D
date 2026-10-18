@@ -1580,7 +1580,7 @@ auto draw( const draw_options &options ) -> bool
         if( is_controlling ) {
             uniforms.cut[3] = 0.0f;
         } else {
-            uniforms.cut2[1] = floor_height + 0.58f;
+            uniforms.cut2[1] = floor_height + 0.52f;
         }
         for( const mesh_batch &b : vehicles.batches ) {
             s.device.draw_block( { .positions = s.veh_positions, .lights = s.veh_lights, .indices = s.veh_indices, .first_index = b.first_index, .index_count = b.index_count,

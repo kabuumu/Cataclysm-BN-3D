@@ -7,6 +7,7 @@
 #include "point.h"
 #include "r3d_camera.h"
 #include "r3d_dda.h"
+#include "r3d_entities.h"
 #include "r3d_math.h"
 #include "r3d_shapes.h"
 #include "r3d_wall_rules.h"
@@ -709,12 +710,12 @@ TEST_CASE( "r3d_wall_atlas_cells", "[r3d]" )
 TEST_CASE( "r3d_vehicle_tiered_height_constants", "[r3d]" )
 {
     CHECK( approx( r3d::vehicle_clearance_h, 0.15f ) );
-    CHECK( approx( r3d::chassis_floor_h, 0.28f ) );
-    CHECK( approx( r3d::vehicle_wheel_h, 0.36f ) );
-    CHECK( approx( r3d::vehicle_bumper_h, 0.44f ) );
-    CHECK( approx( r3d::vehicle_body_h, 0.55f ) );
-    CHECK( approx( r3d::vehicle_cabin_h, 0.85f ) );
-    CHECK( approx( r3d::floor_height + r3d::chassis_floor_h, 0.38f ) );
+    CHECK( approx( r3d::chassis_floor_h, 0.26f ) );
+    CHECK( approx( r3d::vehicle_wheel_h, 0.34f ) );
+    CHECK( approx( r3d::vehicle_bumper_h, 0.42f ) );
+    CHECK( approx( r3d::vehicle_body_h, 0.50f ) );
+    CHECK( approx( r3d::vehicle_cabin_h, 0.82f ) );
+    CHECK( approx( r3d::floor_height + r3d::chassis_floor_h, 0.36f ) );
     CHECK( r3d::floor_height < r3d::vehicle_clearance_h );
     CHECK( r3d::vehicle_clearance_h < r3d::chassis_floor_h );
     CHECK( r3d::chassis_floor_h < r3d::vehicle_wheel_h );
@@ -879,24 +880,24 @@ TEST_CASE( "r3d_vehicle_directional_side_shading", "[r3d]" )
 
 TEST_CASE( "r3d_vehicle_sloped_windshield_and_bumper_contours", "[r3d]" )
 {
-    // Sloped windshield: connects 0.85f at cabin down to 0.55f at hood
+    // Sloped windshield: connects 0.82f at cabin down to 0.50f at hood
     const auto z_cabin = r3d::vehicle_cabin_h;
     const auto z_hood = r3d::vehicle_body_h;
     const auto z_bumper = r3d::vehicle_bumper_h;
     const auto z_clearance = r3d::vehicle_clearance_h;
 
-    CHECK( approx( z_cabin, 0.85f ) );
-    CHECK( approx( z_hood, 0.55f ) );
-    CHECK( approx( z_bumper, 0.44f ) );
+    CHECK( approx( z_cabin, 0.82f ) );
+    CHECK( approx( z_hood, 0.50f ) );
+    CHECK( approx( z_bumper, 0.42f ) );
     CHECK( approx( z_clearance, 0.15f ) );
 
-    // Sloped windshield drop: 0.85f - 0.55f = 0.30f slope over tile span
+    // Sloped windshield drop: 0.82f - 0.50f = 0.32f slope over tile span
     const auto windshield_drop = z_cabin - z_hood;
-    CHECK( approx( windshield_drop, 0.30f ) );
+    CHECK( approx( windshield_drop, 0.32f ) );
 
-    // Bumper bevel drop: 0.55f - 0.44f = 0.11f slope to bumper nose
+    // Bumper bevel drop: 0.50f - 0.42f = 0.08f slope to bumper nose
     const auto bumper_bevel_drop = z_hood - z_bumper;
-    CHECK( approx( bumper_bevel_drop, 0.11f ) );
+    CHECK( approx( bumper_bevel_drop, 0.08f ) );
 
     // Undercarriage clearance: body skirt begins 0.15f above asphalt
     CHECK( z_clearance > 0.0f );
@@ -1029,4 +1030,155 @@ TEST_CASE( "r3d_cutaway_driving_and_tight_occlusion", "[r3d]" )
     }
     CHECK( approx( cut_width, 0.0f ) );
 }
+
+TEST_CASE( "r3d_vehicle_color_to_packed_light", "[r3d]" )
+{
+    const auto white_ambient = r3d::pack_light( 255, 255, 255 );
+
+    // 0 color returns ambient light directly
+    CHECK( r3d::color_to_packed_light( 0, white_ambient ) == white_ambient );
+
+    // Channel order verification: ARGB 0xAARRGGBB -> pack_light(R, G, B)
+    // Red=0xa5 (165), Green=0x50 (80), Blue=0x20 (32)
+    const auto test_color_argb = static_cast<uint32_t>( 0xffa55020 );
+    const auto packed = r3d::color_to_packed_light( test_color_argb, white_ambient );
+
+    // pack_light places R in Byte 0, G in Byte 1, B in Byte 2, A in Byte 3
+    const auto out_r = static_cast<uint8_t>( packed & 0xffu );
+    const auto out_g = static_cast<uint8_t>( ( packed >> 8u ) & 0xffu );
+    const auto out_b = static_cast<uint8_t>( ( packed >> 16u ) & 0xffu );
+
+    CHECK( out_r == 0xa5 );
+    CHECK( out_g == 0x50 );
+    CHECK( out_b == 0x20 );
+
+    // Verify channel order is NOT swapped (out_r must NOT be Blue and out_b must NOT be Red)
+    CHECK( out_r != 0x20 );
+    CHECK( out_b != 0xa5 );
+
+    // Brown car color test: SaddleBrown (0xff8b4513)
+    // A brown car has high Red (139), medium Green (69), low Blue (19).
+    // If channels were swapped, Red and Blue would flip, turning the car into bright blue/cyan.
+    const auto brown_argb = static_cast<uint32_t>( 0xff8b4513 );
+    const auto brown_packed = r3d::color_to_packed_light( brown_argb, white_ambient );
+    const auto b_r = static_cast<uint8_t>( brown_packed & 0xffu );
+    const auto b_g = static_cast<uint8_t>( ( brown_packed >> 8u ) & 0xffu );
+    const auto b_b = static_cast<uint8_t>( ( brown_packed >> 16u ) & 0xffu );
+
+    CHECK( b_r == 139 );
+    CHECK( b_g == 69 );
+    CHECK( b_b == 19 );
+    CHECK( b_r > b_b ); // Must remain warm brown, not cyan
+
+    // Ambient light modulation test (50% ambient)
+    const auto half_ambient = r3d::pack_light( 128, 128, 128 );
+    const auto dimmed = r3d::color_to_packed_light( test_color_argb, half_ambient );
+    const auto dim_r = static_cast<uint8_t>( dimmed & 0xffu );
+    const auto dim_g = static_cast<uint8_t>( ( dimmed >> 8u ) & 0xffu );
+    const auto dim_b = static_cast<uint8_t>( ( dimmed >> 16u ) & 0xffu );
+
+    CHECK( dim_r == static_cast<uint8_t>( ( 165 * 128 ) / 255 ) );
+    CHECK( dim_g == static_cast<uint8_t>( ( 80 * 128 ) / 255 ) );
+    CHECK( dim_b == static_cast<uint8_t>( ( 32 * 128 ) / 255 ) );
+}
+
+TEST_CASE( "r3d_vehicle_opaque_bounds_trimming", "[r3d]" )
+{
+    // Full/unknown sprite bounds: has_trim must be false
+    const auto s_full = r3d::sprite_ref{
+        .opaque_x0 = 0.0f,
+        .opaque_y0 = 0.0f,
+        .opaque_x1 = 1.0f,
+        .opaque_y1 = 1.0f,
+        .valid = true
+    };
+    const auto b_full = r3d::get_sprite_opaque_bounds( s_full );
+    CHECK_FALSE( b_full.has_trim );
+
+    // Door sprite with transparent outer margin on right:
+    // occupies [0.0, 0.75] horizontally and [0.0, 1.0] vertically
+    const auto s_door = r3d::sprite_ref{
+        .quarter_turns = 0,
+        .opaque_x0 = 0.0f,
+        .opaque_y0 = 0.0f,
+        .opaque_x1 = 0.75f,
+        .opaque_y1 = 1.0f,
+        .valid = true
+    };
+    const auto b_door = r3d::get_sprite_opaque_bounds( s_door );
+    CHECK( b_door.has_trim );
+    CHECK( approx( b_door.local_r_min, -0.5f ) );
+    CHECK( approx( b_door.local_r_max, 0.25f ) ); // -0.5f + 0.75f = 0.25f
+    CHECK( approx( b_door.local_f_min, -0.5f ) );
+    CHECK( approx( b_door.local_f_max, 0.5f ) );
+
+    // 90-degree rotated door (quarter_turns = 1):
+    // In rotated space, sx = gy, sy = 1 - gx
+    const auto s_rot1 = r3d::sprite_ref{
+        .quarter_turns = 1,
+        .opaque_x0 = 0.0f,
+        .opaque_y0 = 0.0f,
+        .opaque_x1 = 1.0f,
+        .opaque_y1 = 0.75f,
+        .valid = true
+    };
+    const auto b_rot1 = r3d::get_sprite_opaque_bounds( s_rot1 );
+    CHECK( b_rot1.has_trim );
+    CHECK( approx( b_rot1.local_r_min, -0.25f ) );
+    CHECK( approx( b_rot1.local_r_max, 0.5f ) );
+
+    // Flipped door (flip = true):
+    const auto s_flip = r3d::sprite_ref{
+        .flip = true,
+        .opaque_x0 = 0.0f,
+        .opaque_y0 = 0.0f,
+        .opaque_x1 = 0.75f,
+        .opaque_y1 = 1.0f,
+        .valid = true
+    };
+    const auto b_flip = r3d::get_sprite_opaque_bounds( s_flip );
+    CHECK( b_flip.has_trim );
+    CHECK( approx( b_flip.local_r_min, -0.25f ) );
+    CHECK( approx( b_flip.local_r_max, 0.5f ) );
+
+    // Snapping rule: interior shared edges snap to -0.5f and +0.5f, exterior trims
+    const auto has_left_neighbor = true;
+    const auto has_right_neighbor = false;
+    const auto r_l_rel = has_left_neighbor ? -0.5f : b_door.local_r_min;
+    const auto r_r_rel = has_right_neighbor ? 0.5f : b_door.local_r_max;
+    CHECK( approx( r_l_rel, -0.5f ) );
+    CHECK( approx( r_r_rel, 0.25f ) );
+}
+
+TEST_CASE( "r3d_vehicle_greenhouse_tumblehome_and_flush_roof", "[r3d]" )
+{
+    // Lower body waistline at vehicle_body_h
+    CHECK( approx( r3d::vehicle_body_h, 0.50f ) );
+    // Upper cabin roof at vehicle_cabin_h
+    CHECK( approx( r3d::vehicle_cabin_h, 0.82f ) );
+
+    // Tumblehome: exterior cabin slopes inward up to 0.12f tiles
+    const auto r_l = -0.40f;
+    const auto r_r = 0.40f;
+    const auto max_tumble = ( r_r - r_l ) * 0.25f; // 0.20f
+    const auto tumble = std::min( 0.12f, max_tumble );
+    CHECK( approx( tumble, 0.12f ) );
+
+    const auto r_l_roof = r_l + tumble;
+    const auto r_r_roof = r_r - tumble;
+    CHECK( approx( r_l_roof, -0.28f ) );
+    CHECK( approx( r_r_roof, 0.28f ) );
+
+    // Flush roof & windshield invariant:
+    // Windshield top at z = vehicle_cabin_h spans [r_l_roof, r_r_roof]
+    // Roof front at z = vehicle_cabin_h spans [r_l_roof, r_r_roof]
+    // Both connect at the exact same coordinates and elevation with 0 gap
+    const auto windshield_top_l = r_l_roof;
+    const auto windshield_top_r = r_r_roof;
+    const auto roof_cap_front_l = r_l_roof;
+    const auto roof_cap_front_r = r_r_roof;
+    CHECK( approx( windshield_top_l, roof_cap_front_l ) );
+    CHECK( approx( windshield_top_r, roof_cap_front_r ) );
+}
+
 

@@ -131,7 +131,6 @@ auto to_sprite_ref( const texture_draw_data &data ) -> sprite_ref
     return ref;
 }
 
-// Looks up both layers of a tile. A tile with neither falls back to the tileset's "unknown" sprite.
 struct resolve_layers_options {
     cata_tiles &tiles;
     const std::string &id;
@@ -140,6 +139,7 @@ struct resolve_layers_options {
     int subtile = -1;
     int rota = 0;
     const std::string &variant = "";
+    bool allow_unknown = true;
 };
 
 auto resolve_layers( const resolve_layers_options &options ) -> void
@@ -159,7 +159,7 @@ auto resolve_layers( const resolve_layers_options &options ) -> void
     if( const auto fg = std::optional<texture_draw_data>( tiles.get_sprite_draw_data( { .id = id, .category = category, .pos = origin, .background = false, .subtile = subtile, .rotation = rota, .variant = variant } ) ) ) {
         out.sprite = to_sprite_ref( *fg );
     }
-    if( !out.backdrop.valid && !out.sprite.valid ) {
+    if( options.allow_unknown && !out.backdrop.valid && !out.sprite.valid ) {
         if( const auto unknown = std::optional<texture_draw_data>( tiles.get_sprite_draw_data( { .id = std::string( "unknown" ), .category = C_NONE, .pos = origin } ) ) ) {
             out.sprite = to_sprite_ref( *unknown );
         }
@@ -1245,13 +1245,14 @@ auto tile_info_cache::named( const named_options &options ) -> const tile_info &
 
     const auto key = std::string( std::to_string( static_cast<int>( category ) ) + ":" +
                                   std::to_string( subtile ) + ":" + std::to_string( rota ) + ":" +
+                                  ( options.allow_unknown ? "1:" : "0:" ) +
                                   std::to_string( id.size() ) + ":" + id + variant );
     auto it = named_.find( key );
     if( it != named_.end() ) {
         return it->second;
     }
     auto info = tile_info{};
-    resolve_layers( { .tiles = tiles, .id = id, .category = category, .out = info, .subtile = subtile, .rota = rota, .variant = variant } );
+    resolve_layers( { .tiles = tiles, .id = id, .category = category, .out = info, .subtile = subtile, .rota = rota, .variant = variant, .allow_unknown = options.allow_unknown } );
     return named_.emplace( key, info ).first->second;
 }
 

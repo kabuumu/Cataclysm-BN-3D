@@ -153,6 +153,7 @@ class tile_info_cache
             int subtile = -1;
             int rota = 0;
             const std::string &variant = "";
+            bool allow_unknown = true;
         };
 
         auto named( const named_options &options ) -> const tile_info &; // *NOPAD*
