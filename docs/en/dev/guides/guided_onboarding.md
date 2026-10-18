@@ -2,7 +2,8 @@
 
 This branch adds optional lessons and screen explanations around native BN
 play. It uses BN actions, event subscribers, dialogue conditions, and sidebar
-panels. Hints do not spend turns or modify combat, movement, or survival rules.
+panels. Lesson titles, descriptions and conditional variants are included in BN's
+JSON translation extraction. Hints do not spend turns or modify combat, movement, or survival rules.
 
 Select Guided hints in the Interface options:
 
