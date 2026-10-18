@@ -9530,6 +9530,7 @@ auto map::mark_visibility_cache_dirty(const int zlev) -> void {
 auto map::mark_visibility_caches_clean() -> void {
     std::ranges::for_each(std::views::iota(-OVERMAP_DEPTH, OVERMAP_HEIGHT + 1), [this](const int z) {
         get_cache(z).visibility_cache_dirty = false;
+        ++get_cache(z).visibility_generation;
     });
     visibility_caches_dirty_ = false;
 }

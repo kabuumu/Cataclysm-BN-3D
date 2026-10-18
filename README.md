@@ -1,3 +1,34 @@
+> **Experimental 3D fork:** this repository adds an optional 3D renderer to
+> Cataclysm: Bright Nights. Gameplay rules remain controlled by BN. Start a BN
+> world; CDDA saves and mods are not compatible migration inputs.
+
+## Changes in this fork
+
+- Optional GPU 3D view with camera-relative WASD movement, orbit/pan/zoom controls,
+  configurable thin walls and cutaways, and multiple visible storeys.
+- Wall faces, window surrounds, mounted boards, fitted shallow lockers, upright
+  loose items, natural objects, and vehicles rendered in 3D.
+- Automated comparisons while playing: a private save copy records a 2D reference,
+  eight 3D angles, current saves, settings, and diagnostic logs. Reports are split
+  into ZIPs below GitHub's attachment limit. The launcher checks executable/shader
+  compatibility and reports capture progress and failures.
+- Simple fork issue forms: describe the problem and attach a report if available.
+
+See the [3D build, controls, and capture guide](docs/en/dev/guides/renderer_3d.md).
+The renderer is experimental. Linux builds and capture reports have been tested;
+native macOS and Windows execution has not yet been verified. The UI overhaul,
+first-person camera, and guided onboarding are separate feature ports in progress,
+not features included in this main branch yet.
+
+## LLM disclosure
+
+LLMs have been used to generate and adapt code in this fork and may also be used
+to generate or edit some artwork. Generated contributions can contain mistakes
+and need human review and testing. This disclosure concerns this fork's additions;
+it does not imply that upstream BN code or existing tilesets were LLM-generated.
+Existing licenses, credits, and asset attribution continue to apply. Any generated
+art added to the project should be identified with its asset-specific provenance.
+
 # Cataclysm: Bright Nights
 
 <header align="center">

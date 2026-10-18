@@ -1,4 +1,5 @@
 #include "input.h"
+#include "r3d.h"
 
 #include <algorithm>
 #include <cctype>
@@ -922,6 +923,22 @@ std::string input_context::describe_key_and_name( const std::string &action_desc
     return get_desc( action_descriptor, get_action_name( action_descriptor ), evt_filter );
 }
 
+namespace
+{
+auto r3d_key_action( const input_event &event,
+                     const std::string &category ) -> const std::string * // *NOPAD*
+{
+    if( category != "DEFAULTMODE" || !event.modifiers.empty() || event.sequence.size() != 1 ||
+        event.type != input_event_t::keyboard || !r3d::wasd_controls() ) { return nullptr; }
+    static const auto bindings = std::map<int, std::string> {
+        { 'w', "UP" }, { 's', "DOWN" }, { 'a', "LEFT" }, { 'd', "RIGHT" },
+        { KEY_LEFT, "r3d_rotate_left" }, { KEY_RIGHT, "r3d_rotate_right" },
+        { KEY_UP, "r3d_pitch_up" }, { KEY_DOWN, "r3d_pitch_down" }
+    };
+    const auto found = bindings.find( event.sequence.front() );
+    return found == bindings.end() ? nullptr : &found->second;
+}
+}
 const std::string &input_context::handle_input()
 {
     return handle_input( timeout );
@@ -948,7 +965,8 @@ const std::string &input_context::handle_input( const int timeout )
 
         const auto &action = [&]() -> const std::string & {
             ZoneScopedN( "input_context_input_to_action" );
-            return input_to_action( next_action );
+            const auto remapped = r3d_key_action( next_action, category );
+            return remapped ? *remapped : input_to_action( next_action );
         }();
 
         // Special help action
@@ -1048,7 +1066,16 @@ std::optional<tripoint_rel_ms> input_context::get_direction( const std::string &
         rotate_direction_cw( p.x(), p.y() );
         return p;
     } );
-    const auto transform = iso_mode && tile_iso && use_tiles ? rotate : noop;
+    const auto turns = iso_mode ? r3d::view_eighths() : 0;
+    if( turns != 0 ) {
+        auto plain = *this;
+        plain.iso_mode = false;
+        auto delta = plain.get_direction( action );
+        if( !delta ) { return std::nullopt; }
+        for( auto i = 0; i < turns; ++i ) { *delta = rotate( *delta ); }
+        return delta;
+    }
+    const auto transform = iso_mode && tile_iso && use_tiles && !r3d::active() ? rotate : noop;
 
     if( action == "UP" ) {
         return transform( tripoint_rel_ms::north() );

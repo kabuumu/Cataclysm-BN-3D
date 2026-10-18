@@ -53,6 +53,8 @@ void maptile_soa<sx, sy>::swap_soa_tile(const point_sm_ms& p1, const point_sm_ms
 }
 
 void submap::swap(submap& first, submap& second) {
+    first.render_stamp_ = next_render_stamp();
+    second.render_stamp_ = next_render_stamp();
     const auto first_item_location_offset =
         project_to<coords::ms>(second.pos_) - project_to<coords::ms>(first.pos_);
     const auto second_item_location_offset =
@@ -298,6 +300,7 @@ auto submap::contains_vehicle(vehicle* veh) -> bool {
 }
 
 void submap::rotate(int turns) {
+    render_stamp_ = next_render_stamp();
     turns = turns % 4;
 
     if (turns == 0) { return; }

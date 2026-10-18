@@ -363,6 +363,7 @@ struct level_cache {
     // Per-level visibility dirtiness. The map-level aggregate flag is the source
     // of truth for gameplay consumers that need completed player visibility.
     bool visibility_cache_dirty = true;
+    uint64_t visibility_generation = 0;
     // Set by build_floor_cache; true when at least one tile has a floor.
     bool has_any_floor = true;
     bool has_any_vehicle_floor = false;

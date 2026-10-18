@@ -1,4 +1,6 @@
 #include "action.h"
+#include "r3d.h"
+#include <array>
 
 #include "avatar.h"
 #include "cata_utility.h"
@@ -199,6 +201,15 @@ std::string io::enum_to_string<action_id>( action_id data )
             PAIR( ACTION_TOGGLE_DEBUG_MODE )
             PAIR( ACTION_ZOOM_OUT )
             PAIR( ACTION_ZOOM_IN )
+            PAIR( ACTION_R3D_TOGGLE )
+            PAIR( ACTION_R3D_ROTATE_LEFT )
+            PAIR( ACTION_R3D_ROTATE_RIGHT )
+            PAIR( ACTION_R3D_PITCH_UP )
+            PAIR( ACTION_R3D_PITCH_DOWN )
+            PAIR( ACTION_R3D_ZOOM_IN )
+            PAIR( ACTION_R3D_ZOOM_OUT )
+            PAIR( ACTION_R3D_RESET )
+
             PAIR( ACTION_ACTIONMENU )
             PAIR( ACTION_ITEMACTION )
             PAIR( ACTION_TOGGLE_PIXEL_MINIMAP )
@@ -504,6 +515,22 @@ std::string action_ident( action_id act )
             return "zoom_out";
         case ACTION_ZOOM_IN:
             return "zoom_in";
+        case ACTION_R3D_TOGGLE:
+            return "r3d_toggle";
+        case ACTION_R3D_ROTATE_LEFT:
+            return "r3d_rotate_left";
+        case ACTION_R3D_ROTATE_RIGHT:
+            return "r3d_rotate_right";
+        case ACTION_R3D_PITCH_UP:
+            return "r3d_pitch_up";
+        case ACTION_R3D_PITCH_DOWN:
+            return "r3d_pitch_down";
+        case ACTION_R3D_ZOOM_IN:
+            return "r3d_zoom_in";
+        case ACTION_R3D_ZOOM_OUT:
+            return "r3d_zoom_out";
+        case ACTION_R3D_RESET:
+            return "r3d_reset";
         case ACTION_TOGGLE_FULLSCREEN:
             return "toggle_fullscreen";
         case ACTION_TOGGLE_PIXEL_MINIMAP:
@@ -629,6 +656,15 @@ bool can_action_change_worldstate( const action_id act )
         case ACTION_TOGGLE_ZONE_OVERLAY:
         case ACTION_ZOOM_OUT:
         case ACTION_ZOOM_IN:
+        case ACTION_R3D_TOGGLE:
+        case ACTION_R3D_ROTATE_LEFT:
+        case ACTION_R3D_ROTATE_RIGHT:
+        case ACTION_R3D_PITCH_UP:
+        case ACTION_R3D_PITCH_DOWN:
+        case ACTION_R3D_ZOOM_IN:
+        case ACTION_R3D_ZOOM_OUT:
+        case ACTION_R3D_RESET:
+
         case ACTION_TOGGLE_PIXEL_MINIMAP:
         case ACTION_TOGGLE_PANEL_ADM:
         case ACTION_PANEL_MGMT:
@@ -705,15 +741,32 @@ std::optional<std::string> press_x_if_bound( action_id act )
     return press_x( act );
 }
 
-action_id get_movement_action_from_delta( const tripoint_rel_ms &d, iso_rotate rot )
+namespace
 {
+auto rotate_eighths( point_rel_ms delta, int turns ) -> point_rel_ms
+{
+    const auto ring = std::array<point_rel_ms, 8> { point_rel_ms::north(), point_rel_ms::north_east(),
+               point_rel_ms::east(), point_rel_ms::south_east(), point_rel_ms::south(),
+               point_rel_ms::south_west(), point_rel_ms::west(), point_rel_ms::north_west()
+                                                  };
+    for( auto i = size_t{ 0 }; i < ring.size(); ++i ) {
+        if( ring[i] == delta ) { return ring[( i + size_t( turns ) ) % ring.size()]; }
+    }
+    return delta;
+}
+}
+action_id get_movement_action_from_delta( const tripoint_rel_ms &delta, iso_rotate rot )
+{
+    const auto turns = rot == iso_rotate::yes ? r3d::view_eighths() : 0;
+    const auto d = tripoint_rel_ms( rotate_eighths( delta.xy(), ( 8 - turns ) % 8 ), delta.z() );
+
     if( d.z() == -1 ) {
         return ACTION_MOVE_DOWN;
     } else if( d.z() == 1 ) {
         return ACTION_MOVE_UP;
     }
 
-    const bool iso_mode = rot == iso_rotate::yes && use_tiles && tile_iso;
+    const bool iso_mode = rot == iso_rotate::yes && use_tiles && tile_iso && !r3d::active();
     if( d.xy() == point_rel_ms::north() ) {
         return iso_mode ? ACTION_MOVE_FORTH_LEFT : ACTION_MOVE_FORTH;
     } else if( d.xy() == point_rel_ms::north_east() ) {
@@ -733,9 +786,9 @@ action_id get_movement_action_from_delta( const tripoint_rel_ms &d, iso_rotate r
     }
 }
 
-point_rel_ms get_delta_from_movement_action( const action_id act, const iso_rotate rot )
+static point_rel_ms movement_delta( const action_id act, const iso_rotate rot )
 {
-    const bool iso_mode = rot == iso_rotate::yes && use_tiles && tile_iso;
+    const bool iso_mode = rot == iso_rotate::yes && use_tiles && tile_iso && !r3d::active();
     switch( act ) {
         case ACTION_MOVE_FORTH:
             return iso_mode ? point_rel_ms::north_east() : point_rel_ms::north();
@@ -1190,7 +1243,7 @@ action_id handle_action_menu()
             } );
 #if defined(TILES)
             if( use_tiles ) {
-                register_actions( { ACTION_ZOOM_OUT, ACTION_ZOOM_IN } );
+                register_actions( { ACTION_ZOOM_OUT, ACTION_ZOOM_IN, ACTION_R3D_TOGGLE, ACTION_R3D_ROTATE_LEFT, ACTION_R3D_ROTATE_RIGHT, ACTION_R3D_PITCH_UP, ACTION_R3D_PITCH_DOWN, ACTION_R3D_ZOOM_IN, ACTION_R3D_ZOOM_OUT, ACTION_R3D_RESET } );
             }
 #endif
             register_lua_action_entries( category_id );
@@ -1513,4 +1566,10 @@ std::optional<std::pair<tripoint_bub_ms, tripoint_bub_ms>> choose_area( const st
 
     return std::nullopt;
 
+}
+
+auto get_delta_from_movement_action( action_id act, iso_rotate rot ) -> point_rel_ms
+{
+    const auto turns = rot == iso_rotate::yes ? r3d::view_eighths() : 0;
+    return rotate_eighths( movement_delta( act, rot ), turns );
 }

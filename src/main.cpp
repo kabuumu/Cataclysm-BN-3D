@@ -628,6 +628,9 @@ int main( int argc, char *argv[] )
                 return 0;
             } else if( !strcmp( argv[0], "--version" ) ) {
                 cata_printf( "%s\n", getVersionString() );
+#if defined(TILES)
+                cata_printf( "Renderer capture protocol: 1\n" );
+#endif
                 return 0;
             } else if( !strcmp( argv[0], "--paths" ) ) {
                 asked_game_path = true;

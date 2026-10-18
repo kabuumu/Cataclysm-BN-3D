@@ -16,6 +16,7 @@
 #include "type_id.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -94,7 +95,15 @@ public:
 };
 
 class submap: maptile_soa<SEEX, SEEY> {
+    uint64_t render_stamp_ = next_render_stamp();
+    static auto next_render_stamp() -> uint64_t {
+        static auto counter = std::atomic<uint64_t>{0};
+        return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
 public:
+    auto render_stamp() const -> uint64_t { return render_stamp_; }
+
     submap(const tripoint_abs_sm& position, const dimension_id& dim);
     ~submap();
 
@@ -129,6 +138,7 @@ public:
     auto get_furn(const point_sm_ms& p) const -> furn_id { return frn[p.x()][p.y()]; }
 
     void set_furn(const point_sm_ms& p, furn_id furn) {
+        render_stamp_ = next_render_stamp();
         is_uniform = false;
         emitter_cache = std::nullopt;
         frn[p.x()][p.y()] = furn;
@@ -138,6 +148,7 @@ public:
     }
 
     void set_all_furn(const furn_id& furn) {
+        render_stamp_ = next_render_stamp();
         std::fill_n(&frn[0][0], elements, furn);
         emitter_cache = std::nullopt;
         if (furn != f_null) { return; }
@@ -148,6 +159,7 @@ public:
     auto get_ter(const point_sm_ms& p) const -> ter_id { return ter[p.x()][p.y()]; }
 
     void set_ter(const point_sm_ms& p, ter_id terr) {
+        render_stamp_ = next_render_stamp();
         is_uniform = false;
         emitter_cache = std::nullopt;
         ter[p.x()][p.y()] = terr;
@@ -155,6 +167,7 @@ public:
     }
 
     void set_all_ter(const ter_id& terr) {
+        render_stamp_ = next_render_stamp();
         std::fill_n(&ter[0][0], elements, terr);
         emitter_cache = std::nullopt;
     }

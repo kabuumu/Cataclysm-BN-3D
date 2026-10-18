@@ -217,6 +217,10 @@ class game : public submap_load_listener
 
         /** Returns false if saving failed. */
         bool save( bool quitting );
+        auto save_for_capture() -> bool;
+    private:
+        auto save_impl( bool quitting, bool capture ) -> bool;
+    public:
 
         /** Returns a list of currently active character saves. */
         std::vector<std::string> list_active_saves();

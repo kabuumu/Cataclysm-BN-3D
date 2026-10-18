@@ -94,7 +94,7 @@ struct state_modifier_group {
 };
 
 // Make sure to change TILE_CATEGORY_IDS if this changes!
-enum TILE_CATEGORY {
+enum TILE_CATEGORY : int {
     C_NONE,
     C_VEHICLE_PART,
     C_TERRAIN,
@@ -141,6 +141,9 @@ class texture
             srcrect( { static_cast<float>( rect.x ), static_cast<float>( rect.y ),
                      static_cast<float>( rect.w ), static_cast<float>( rect.h ) } ) { }
         texture() = default;
+        auto r3d_texture() const -> SDL_Texture_SharedPtr { return sdl_texture_ptr; }
+        auto r3d_rect() const -> SDL_FRect { return srcrect; }
+
 
         /// Returns the width (first) and height (second) of the stored texture.
         std::pair<int, int> dimension() const {
@@ -666,6 +669,34 @@ class idle_animation_manager
         }
 };
 
+struct texture_draw_data {
+    SDL_Texture *texture;
+    SDL_Rect dimensions;
+    // avoiding ImVec2 here
+    std::pair<float, float> uv0;
+    std::pair<float, float> uv1;
+    // keeps the sheet alive for callers that hold on to texture (the 3D renderer's caches)
+    std::shared_ptr<SDL_Texture> owner;
+    // sprite size in tiles of the tileset (tall sprites overflow upwards)
+    float size_x = 1.0f;
+    float size_y = 1.0f;
+    // how the flat view would turn this sprite: clockwise quarter turns, or a horizontal flip
+    int quarter_turns = 0;
+    bool flip = false;
+    // bounding box of the sprite's opaque pixels, relative to dimensions (empty when unknown)
+    SDL_Rect opaque = { 0, 0, 0, 0 };
+    // average colours of its top and the rest (see sprite_scan)
+    uint32_t top_color = 0;
+    uint32_t body_color = 0;
+    // clockwise quarter turns the thing faces (its front away from south), whether the art is
+    // turned (quarter_turns) or the tileset has a sprite drawn for that direction
+    int facing = 0;
+    // where the flat view draws the sprite relative to the tile's top-left corner, in pixels
+    // (the sheet's sprite_offset; tall sheets are drawn higher so their feet stay on the tile)
+    int offset_x = 0;
+    int offset_y = 0;
+};
+
 /** type used for color blocks overlays.
  * first: The SDL blend mode used for the color.
  * second:
@@ -960,6 +991,41 @@ class cata_tiles
         bool draw_item_highlight( const tripoint_bub_ms &pos );
 
     public:
+
+        struct sprite_request {
+            const std::string &id;
+            TILE_CATEGORY category;
+            const tripoint_bub_ms &pos;
+            bool background = false;
+            int subtile = -1;
+            int rotation = 0;
+            std::string variant;
+        };
+        auto get_sprite_draw_data( const sprite_request &request ) -> std::optional<texture_draw_data>;
+        struct orientation_request {
+            const tripoint_bub_ms &pos;
+            bool furniture;
+            int &subtile;
+            int &rotation;
+        };
+        auto get_orientation( const orientation_request &request ) -> void;
+        struct character_layers {
+            std::vector<std::pair<std::string, TILE_CATEGORY>> ids;
+            bool mirrored = false;
+        };
+        auto get_character_layers( const Character &ch ) -> character_layers;
+        auto tileset_loads() const -> uint64_t { return r3d_tileset_loads; }
+        struct frame_markers {
+            std::vector<tripoint_bub_ms> cursors;
+            std::vector<tripoint_bub_ms> highlights;
+            std::vector<tripoint_bub_ms> line;
+            std::optional<tripoint_bub_ms> line_end;
+            std::string line_end_id;
+        };
+        auto get_frame_markers() const -> frame_markers;
+        auto restore_frame_markers( const frame_markers &markers ) -> void;
+        auto drop_frame_layers() -> void;
+
         auto find_tile_looks_like( const std::string &id, TILE_CATEGORY category,
                                    int looks_like_jumps_limit = 10 ) const -> std::optional<tile_lookup_res>;
 
@@ -1120,6 +1186,7 @@ class cata_tiles
         const SDL_Renderer_Ptr &renderer;
         const GeometryRenderer_Ptr &geometry;
         /** Currently loaded tileset. */
+        uint64_t r3d_tileset_loads = 0;
         std::unique_ptr<tileset> tileset_ptr;
         /** List of mods with which @ref tileset_ptr was loaded. */
         std::vector<mod_id> tileset_mod_list_stamp;

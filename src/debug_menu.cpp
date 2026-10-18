@@ -2228,10 +2228,10 @@ void debug()
 
         case DEBUG_BUG_REPORT: {
             constexpr const char *const bug_report_url =
-                "https://github.com/cataclysmbn/Cataclysm-BN/issues/new"
+                "https://github.com/r-melvin/Cataclysm-BN-3D/issues/new"
                 "?labels=bug"
                 "&template=bug_report.yml"
-                "&versions-and-configuration=";
+                "&description=";
 
             const std::string report = game_info::game_report();
             const std::string url = bug_report_url + encode_url( report );

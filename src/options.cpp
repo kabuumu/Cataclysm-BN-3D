@@ -2543,6 +2543,7 @@ void options_manager::add_options_graphics()
 #   else
     std::vector<options_manager::id_and_option> renderer_list = cata_tiles::build_renderer_list();
     std::string default_renderer = renderer_list.front().first;
+    if( std::ranges::any_of( renderer_list, []( const auto & entry ) { return entry.first == "gpu"; } ) ) { default_renderer = "gpu"; }
 #   if defined(_WIN32)
     for( const id_and_option &renderer : renderer_list ) {
         if( renderer.first == "direct3d11" ) {
@@ -2566,6 +2567,55 @@ void options_manager::add_options_graphics()
 #endif
 
 #if defined(TILES)
+    add( "RENDERER_3D", graphics, translate_marker( "3D renderer (experimental)" ),
+         translate_marker( "If true, draws the map as a textured 3D scene instead of flat tiles.  "
+                           "Needs a GPU renderer; falls back to flat tiles otherwise." ),
+         false, COPT_CURSES_HIDE
+       );
+
+    get_option( "RENDERER_3D" ).setPrerequisite( "USE_TILES" );
+
+    add( "R3D_VIEW_DEPTH", graphics, translate_marker( "3D view depth" ),
+         translate_marker( "How many z-levels below the viewed one the 3D renderer draws." ),
+         1, 8, 3, COPT_CURSES_HIDE
+       );
+
+    get_option( "R3D_VIEW_DEPTH" ).setPrerequisite( "RENDERER_3D" );
+
+    add( "R3D_LEVEL_HEIGHT", graphics, translate_marker( "3D storey height" ),
+         translate_marker( "Height of one z-level in the 3D view, in percent of a tile's width.  Higher values make walls taller next to characters." ),
+         100, 300, 180, COPT_CURSES_HIDE
+       );
+
+    get_option( "R3D_LEVEL_HEIGHT" ).setPrerequisite( "RENDERER_3D" );
+
+    add( "R3D_WASD", graphics, translate_marker( "3D WASD controls" ),
+         translate_marker( "In the 3D view, walk with W A S D and turn the camera with the arrow keys.  While on, w a s d no longer wield, apply, smash or drop (use the action menu or rebind them).  Movement always follows the camera's facing." ),
+         true, COPT_CURSES_HIDE
+       );
+
+    get_option( "R3D_WASD" ).setPrerequisite( "RENDERER_3D" );
+
+    add( "R3D_THIN_WALLS", graphics, translate_marker( "3D thin walls" ),
+         translate_marker( "Draw walls with the same thin profile as doors and windows.  "
+                           "Disable to draw walls as full tile blocks." ),
+         true, COPT_CURSES_HIDE );
+    get_option( "R3D_THIN_WALLS" ).setPrerequisite( "RENDERER_3D" );
+
+    add( "R3D_WALL_TEXTURES", graphics, translate_marker( "3D plaster texture on painted walls" ),
+         translate_marker( "In the 3D view, give painted and plain walls a drawn plaster texture instead of reading the tileset's own wall sprite as coving, paint and skirting board.  Brick, wood and stone walls always use the tileset's sprite." ),
+         false, COPT_CURSES_HIDE
+       );
+
+    get_option( "R3D_WALL_TEXTURES" ).setPrerequisite( "RENDERER_3D" );
+
+    add( "R3D_CUTAWAY", graphics, translate_marker( "3D cutaway around the player" ),
+         translate_marker( "Leave out walls and furniture standing between the camera and the player in the 3D view, so the player is never hidden." ),
+         true, COPT_CURSES_HIDE
+       );
+
+    get_option( "R3D_CUTAWAY" ).setPrerequisite( "RENDERER_3D" );
+
     add( "TEXTURE_STREAMING", graphics, translate_marker( "Texture Streaming" ),
          translate_marker( "Use texture-streaming instead of render-to-texture for dynamic graphics. Requires restart." ),
     {

@@ -1,4 +1,5 @@
 #include "game.h"
+#include "r3d.h"
 
 #include "achievement.h"
 #include "action.h"
@@ -3702,6 +3703,15 @@ input_context get_default_mode_input_context()
     if( use_tiles ) {
         ctxt.register_action( "zoom_out" );
         ctxt.register_action( "zoom_in" );
+        ctxt.register_action( "r3d_toggle" );
+        ctxt.register_action( "r3d_rotate_left" );
+        ctxt.register_action( "r3d_rotate_right" );
+        ctxt.register_action( "r3d_pitch_up" );
+        ctxt.register_action( "r3d_pitch_down" );
+        ctxt.register_action( "r3d_zoom_in" );
+        ctxt.register_action( "r3d_zoom_out" );
+        ctxt.register_action( "r3d_reset" );
+
     }
 #if !defined(__ANDROID__)
     ctxt.register_action( "toggle_fullscreen" );
@@ -4381,6 +4391,13 @@ bool game::save_uistate_data() const
 
 bool game::save( bool quitting )
 {
+    return save_impl( quitting, false );
+}
+
+auto game::save_for_capture() -> bool { return save_impl( false, true ); }
+
+auto game::save_impl( bool quitting, bool capture ) -> bool
+{
     world *world = get_active_world();
     if( !world ) {
         return false;
@@ -4392,7 +4409,7 @@ bool game::save( bool quitting )
     world->start_save_tx();
 
     try {
-        cata::run_on_game_save_hooks( *DynamicDataLoader::get_instance().lua );
+        if( !capture ) { cata::run_on_game_save_hooks( *DynamicDataLoader::get_instance().lua ); }
         reset_save_ids( time( nullptr ), quitting );
         if( !save_factions_missions_npcs() ||
             !save_artifacts() ||
@@ -4413,7 +4430,7 @@ bool game::save( bool quitting )
             world_generator->active_world->info->add_save( save_t::from_save_id( u.get_save_id() ) );
 
             auto duration = world->commit_save_tx();
-            add_msg( m_info, _( "World Saved (took %dms)." ), duration );
+            if( !capture ) { add_msg( m_info, _( "World Saved (took %dms)." ), duration ); }
             return true;
         }
     } catch( std::ios::failure &err ) {
@@ -10488,6 +10505,8 @@ static float calc_next_zoom( float cur_zoom, int direction )
 void game::zoom_out()
 {
 #if defined(TILES)
+    if( r3d::active() ) { r3d::zoom( -3 ); return; }
+
     tileset_zoom = calc_next_zoom( tileset_zoom, -1 );
     rescale_tileset( tileset_zoom );
 #endif
@@ -10508,6 +10527,8 @@ void game::zoom_out_overmap()
 void game::zoom_in()
 {
 #if defined(TILES)
+    if( r3d::active() ) { r3d::zoom( 3 ); return; }
+
     tileset_zoom = calc_next_zoom( tileset_zoom, 1 );
     rescale_tileset( tileset_zoom );
 #endif

@@ -1,6 +1,7 @@
 #if defined(TILES)
 
 #    include "sdltiles.h" // IWYU pragma: associated
+#    include "r3d.h"
 
 #    include "avatar.h"
 #    include "cata_tiles.h"
@@ -417,6 +418,7 @@ static void WinDestroy()
     geometry.reset();
     format = SDL_PIXELFORMAT_UNKNOWN;
     display_buffer.reset();
+    r3d::shutdown();
     renderer.reset();
     ::window.reset();
 }
@@ -1627,13 +1629,25 @@ void cata_cursesport::curses_drawwindow( const catacurses::window &w )
 
         // game::w_terrain can be drawn by the tilecontext.
         // skip the normal drawing code for it.
-        tilecontext->draw(
-            point( win->pos.x * fontwidth, win->pos.y * fontheight ),
-            g->ter_view_p,
-            TERRAIN_WINDOW_TERM_WIDTH * font->width,
-            TERRAIN_WINDOW_TERM_HEIGHT * font->height,
-            overlay_strings,
-            color_blocks );
+        const auto draw_flat = [win, &overlay_strings, &color_blocks]() -> void {
+            tilecontext->draw( point( win->pos.x * fontwidth, win->pos.y * fontheight ),
+                               g->ter_view_p, TERRAIN_WINDOW_TERM_WIDTH * font->width,
+                               TERRAIN_WINDOW_TERM_HEIGHT * font->height, overlay_strings, color_blocks );
+        };
+        const auto prepare_3d = get_option<bool>( "RENDERER_3D" ) &&
+                                SDL_GetGPURendererDevice( renderer.get() ) != nullptr;
+        if( prepare_3d ) {
+            // BN maintains visibility and map memory in its native tiles draw, including
+            // offscreen memory and vehicle overlays. Preserve that work under the 3D frame.
+            const auto markers = tilecontext->get_frame_markers();
+            draw_flat();
+            tilecontext->restore_frame_markers( markers );
+        }
+        const auto drawn_3d = r3d::draw( { .renderer = renderer.get(), .x = float( win->pos.x * fontwidth ),
+                                           .y = float( win->pos.y * fontheight ), .w = float( TERRAIN_WINDOW_TERM_WIDTH * font->width ),
+                                           .h = float( TERRAIN_WINDOW_TERM_HEIGHT * font->height ), .center = g->ter_view_p, .render_epoch = 0 } );
+        if( !drawn_3d ) { draw_flat(); }
+        else { overlay_strings.clear(); color_blocks.second.clear(); }
 
         // color blocks overlay
         if( !color_blocks.second.empty() ) {
@@ -2901,6 +2915,7 @@ void android_vibrate()
 #endif
 
 //Check for any window messages (keypress, paint, mousemove, etc)
+namespace { auto r3d_dragging = false; }
 static void CheckMessages()
 {
     SDL_Event ev;
@@ -3267,6 +3282,7 @@ static void CheckMessages()
                 resize_dims = point( ev.window.data1, ev.window.data2 );
                 break;
             case SDL_EVENT_RENDER_TARGETS_RESET:
+                r3d::shutdown();
                 render_target_reset = true;
                 break;
             case SDL_EVENT_KEY_DOWN: {
@@ -3396,7 +3412,20 @@ static void CheckMessages()
                 // on gamepads, the axes are the analog sticks
                 // TODO: somehow get the "digipad" values from the axes
                 break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                if( ev.button.button == SDL_BUTTON_MIDDLE ) {
+                    r3d_dragging = r3d::contains( ev.button.x / scaling_factor, ev.button.y / scaling_factor );
+                }
+                break;
             case SDL_EVENT_MOUSE_MOTION:
+                if( r3d_dragging ) {
+                    if( SDL_GetModState() & SDL_KMOD_SHIFT ) { r3d::drag_pan( ev.motion.xrel, ev.motion.yrel ); }
+                    else { r3d::drag_orbit( ev.motion.xrel, ev.motion.yrel ); }
+                    if( g ) { g->invalidate_main_ui_adaptor(); }
+                    ui_manager::redraw_invalidated();
+                    needupdate = true;
+                    break;
+                }
                 if( get_option<std::string>( "HIDE_CURSOR" ) == "show" ||
                     get_option<std::string>( "HIDE_CURSOR" ) == "hidekb" ) {
                     if( !SDL_CursorVisible() ) {
@@ -3409,6 +3438,7 @@ static void CheckMessages()
                 break;
 
             case SDL_EVENT_MOUSE_BUTTON_UP:
+                if( ev.button.button == SDL_BUTTON_MIDDLE ) { r3d_dragging = false; }
                 switch( ev.button.button ) {
                     case SDL_BUTTON_LEFT:
                         last_input = input_event( MOUSE_BUTTON_LEFT, input_event_t::mouse );
@@ -3969,6 +3999,8 @@ input_event input_manager::get_input_event()
         wrefresh( catacurses::stdscr );
     }
 
+    r3d::compare_capture( false );
+
     if( inputdelay < 0 ) {
         ZoneScopedN( "sdl_input_wait_blocking" );
         do {
@@ -4150,6 +4182,9 @@ std::optional<tripoint_bub_ms> input_context::get_coordinates( const catacurses:
         return std::nullopt;
     }
 
+    if( use_tiles && g && capture_win == g->w_terrain && r3d::active() ) {
+        return r3d::pick( coordinate.x, coordinate.y );
+    }
     point_bub_ms view_offset;
     if( capture_win == g->w_terrain ) {
         view_offset = g->ter_view_p.xy();

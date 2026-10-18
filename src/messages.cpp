@@ -1,3 +1,4 @@
+#include "r3d_capture_messages.h"
 #include "messages.h"
 #include "message_types.h"
 #include "calendar.h"
@@ -848,7 +849,7 @@ void Messages::display_messages()
 {
     dialog dlg;
     dlg.run();
-    player_messages.curmes = calendar::turn;
+    if( !capture_read_frozen ) { player_messages.curmes = calendar::turn; }
 }
 
 void Messages::display_messages( const catacurses::window &ipk_target, const int left,
@@ -924,7 +925,7 @@ void Messages::display_messages( const catacurses::window &ipk_target, const int
         }
     }
 
-    player_messages.curmes = calendar::turn;
+    if( !capture_read_frozen ) { player_messages.curmes = calendar::turn; }
 }
 
 void add_msg( std::string msg )

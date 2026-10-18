@@ -31,7 +31,8 @@
 #include "faction.h"
 #include "flag.h"
 #include "fstream_utils.h"
-#include "game.h" // IWYU pragma: associated
+#include "game.h"
+#include "r3d.h" // IWYU pragma: associated
 #include "game_constants.h"
 #include "game_inventory.h"
 #include "gamemode.h"
@@ -1916,6 +1917,9 @@ bool game::handle_action()
     std::string action;
     input_context ctxt;
     action_id act = ACTION_NULL;
+    if( !u.has_destination() && !u.activity && !u.is_dead_state() ) {
+        r3d::compare_capture( true );
+    }
     user_turn current_turn;
     {
         ZoneScopedN( "handle_action_get_action" );
@@ -3168,6 +3172,30 @@ bool game::handle_action()
                 mark_main_ui_adaptor_resize();
                 break;
 
+            case ACTION_R3D_TOGGLE:
+                r3d::toggle();
+                break;
+            case ACTION_R3D_ROTATE_LEFT:
+                r3d::rotate( -1 );
+                break;
+            case ACTION_R3D_ROTATE_RIGHT:
+                r3d::rotate( 1 );
+                break;
+            case ACTION_R3D_PITCH_UP:
+                r3d::pitch( 1 );
+                break;
+            case ACTION_R3D_PITCH_DOWN:
+                r3d::pitch( -1 );
+                break;
+            case ACTION_R3D_ZOOM_IN:
+                r3d::zoom( 1 );
+                break;
+            case ACTION_R3D_ZOOM_OUT:
+                r3d::zoom( -1 );
+                break;
+            case ACTION_R3D_RESET:
+                r3d::reset();
+                break;
             case ACTION_ITEMACTION:
                 item_action_menu();
                 break;

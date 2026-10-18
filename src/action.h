@@ -315,6 +315,15 @@ enum action_id : int {
     ACTION_ZOOM_OUT,
     /** Zoom view out */
     ACTION_ZOOM_IN,
+    ACTION_R3D_TOGGLE,
+    ACTION_R3D_ROTATE_LEFT,
+    ACTION_R3D_ROTATE_RIGHT,
+    ACTION_R3D_PITCH_UP,
+    ACTION_R3D_PITCH_DOWN,
+    ACTION_R3D_ZOOM_IN,
+    ACTION_R3D_ZOOM_OUT,
+    ACTION_R3D_RESET,
+
     /** Open the action menu */
     ACTION_ACTIONMENU,
     /** Open the item uses menu */

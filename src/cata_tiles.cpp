@@ -482,6 +482,7 @@ void cata_tiles::load_tileset(
     const bool pump_events
 )
 {
+    ++r3d_tileset_loads;
     if( !force && tileset_ptr &&
         !get_option<bool>( "FORCE_TILESET_RELOAD" ) &&
         tileset_ptr->get_tileset_id() == tileset_id &&

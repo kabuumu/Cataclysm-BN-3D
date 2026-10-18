@@ -4628,6 +4628,7 @@ void submap::store( JsonOut &jsout ) const
 void submap::load( JsonIn &jsin, const std::string &member_name, int version,
                    const tripoint_abs_ms offset, const dimension_id &dim )
 {
+    render_stamp_ = next_render_stamp();
     if( member_name == "turn_last_touched" ) {
         last_touched = calendar::turn_zero + time_duration::from_turns( jsin.get_int() );
         // Guard against corrupted saves: last_touched must not be in the future.
