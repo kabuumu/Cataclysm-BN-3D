@@ -600,11 +600,21 @@ auto set_cutaway( const set_cutaway_options &options ) -> void
     const auto &you = get_avatar();
     const auto p = tripoint_bub_ms( you.bub_pos() );
     if( !get_option<bool>( "R3D_CUTAWAY" ) || p.z() != center.z() ) {
+        u.cut[3] = 0.0f;
         return;
     }
+
+    const auto &here = get_map();
+    const auto vp = here.veh_at( p );
+    const auto is_driving = you.in_vehicle && vp && vp->vehicle().player_in_control( you );
+    if( is_driving ) {
+        u.cut[3] = 0.0f;
+        return;
+    }
+
     // Radius in tiles around the player's middle, and the height (above their floor) below which
     // nothing is cut, so the floor and low furniture around them stay.
-    constexpr auto radius = static_cast<float>( 1.3f );
+    constexpr auto radius = static_cast<float>( 0.55f );
     constexpr auto keep_below = static_cast<float>( 0.3f );
     const auto base = static_cast<float>( floor_height );
     const auto middle = vec3( tile_to_world( { .x = static_cast<float>( p.x() - center.x() ) + 0.5f,
@@ -614,7 +624,7 @@ auto set_cutaway( const set_cutaway_options &options ) -> void
     const auto side = vec3( transform_point( view_proj, middle + cam.ground_right() * radius ) );
     u.cut[0] = at.x;
     u.cut[1] = at.y;
-    u.cut[2] = at.z;
+    u.cut[2] = at.z - 0.0005f;
     u.cut[3] = std::abs( side.x - at.x );
     u.cut2[0] = 1.0f / std::max( aspect, 0.01f );
     u.cut2[1] = base + keep_below;
@@ -1567,7 +1577,11 @@ auto draw( const draw_options &options ) -> bool
         uniforms.pull[2] = 0.0f;
         uniforms.pull[3] = 0.0f;
         set_cutaway( { .u = uniforms, .view_proj = view_proj, .aspect = aspect, .cam = s.cam, .center = center } );
-        uniforms.cut2[1] = floor_height + 0.58f;
+        if( is_controlling ) {
+            uniforms.cut[3] = 0.0f;
+        } else {
+            uniforms.cut2[1] = floor_height + 0.58f;
+        }
         for( const mesh_batch &b : vehicles.batches ) {
             s.device.draw_block( { .positions = s.veh_positions, .lights = s.veh_lights, .indices = s.veh_indices, .first_index = b.first_index, .index_count = b.index_count,
                                    .sheet = b.sheet, .uniforms = uniforms } );

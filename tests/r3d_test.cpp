@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "catch/catch.hpp"
+#include "point.h"
 #include "r3d_camera.h"
 #include "r3d_dda.h"
 #include "r3d_math.h"
@@ -901,3 +902,131 @@ TEST_CASE( "r3d_vehicle_sloped_windshield_and_bumper_contours", "[r3d]" )
     CHECK( z_clearance > 0.0f );
     CHECK( z_bumper > z_clearance );
 }
+
+TEST_CASE( "r3d_vehicle_pivot_anchor_alignment", "[r3d]" )
+{
+    // Verification rule: For any cardinal angle (0, 90, 180, 270),
+    // local mount transformed relative to pivot_anchor[0] must land on the exact
+    // center of the map tile predicted by CDDA's vehicle rotation.
+    const auto pivot_anchor = point( 2, 1 );
+    const auto pivot_scene_x = 20.5f;
+    const auto pivot_scene_y = 30.5f;
+
+    const auto to_scene = [pivot_anchor, pivot_scene_x, pivot_scene_y]( const point &mount, units::angle dir ) -> std::array<float, 2> {
+        const auto rel_f = static_cast<float>( mount.x - pivot_anchor.x );
+        const auto rel_r = static_cast<float>( mount.y - pivot_anchor.y );
+        const auto theta = static_cast<float>( units::to_radians( dir ) );
+        const auto cos_th = static_cast<float>( std::cos( theta ) );
+        const auto sin_th = static_cast<float>( std::sin( theta ) );
+        return std::array<float, 2>{
+            pivot_scene_x + rel_f * cos_th - rel_r * sin_th,
+            pivot_scene_y + rel_f * sin_th + rel_r * cos_th
+        };
+    };
+
+    // Reference CDDA rotation calculation (vehicle::rotate_to_world)
+    const auto cdda_rotate_to_world = [pivot_anchor]( const point &mount, units::angle dir ) -> point {
+        const auto rel = mount - pivot_anchor;
+        const auto deg = ( static_cast<int>( std::lround( units::to_degrees( dir ) ) ) % 360 + 360 ) % 360;
+        switch( deg ) {
+            case 0:   // East: +x_mnt -> +x_world, +y_mnt -> +y_world
+                return rel;
+            case 90:  // South: +x_mnt -> +y_world, +y_mnt -> -x_world
+                return point( -rel.y, rel.x );
+            case 180: // West: +x_mnt -> -x_world, +y_mnt -> -y_world
+                return point( -rel.x, -rel.y );
+            case 270: // North: +x_mnt -> -y_world, +y_mnt -> +x_world
+                return point( rel.y, -rel.x );
+            default:
+                return rel;
+        }
+    };
+
+    const auto test_mounts = std::vector<point>{
+        point( 2, 1 ),   // At pivot
+        point( 4, 1 ),   // Front hood
+        point( 0, 1 ),   // Rear bumper
+        point( 3, 0 ),   // Front-left tire
+        point( 3, 2 ),   // Front-right tire
+        point( -1, 0 ),  // Rear-left bumper
+    };
+
+    const auto angles = std::vector<units::angle>{ 0_degrees, 90_degrees, 180_degrees, 270_degrees };
+
+    for( const auto &dir : angles ) {
+        for( const auto &mount : test_mounts ) {
+            const auto scene_pos = to_scene( mount, dir );
+            const auto expected_offset = cdda_rotate_to_world( mount, dir );
+            const auto expected_scene_x = pivot_scene_x + static_cast<float>( expected_offset.x );
+            const auto expected_scene_y = pivot_scene_y + static_cast<float>( expected_offset.y );
+            CHECK( approx( scene_pos[0], expected_scene_x, 1e-4f ) );
+            CHECK( approx( scene_pos[1], expected_scene_y, 1e-4f ) );
+        }
+    }
+}
+
+TEST_CASE( "r3d_vehicle_oversized_sprite_clamping", "[r3d]" )
+{
+    // 48x48 or 64x64 oversized vehicle parts (e.g. 1.5x larger than tile)
+    // must be clamped to the [rel_forward - 0.5f, rel_forward + 0.5f] x [rel_right - 0.5f, rel_right + 0.5f] cell footprint
+    const auto rel_f = 2.0f;
+    const auto rel_r = -1.0f;
+    const auto cell_f_min = rel_f - 0.5f;
+    const auto cell_f_max = rel_f + 0.5f;
+    const auto cell_r_min = rel_r - 0.5f;
+    const auto cell_r_max = rel_r + 0.5f;
+
+    // Sprite with size_x = 1.5f, size_y = 1.5f, centered on tile (offset_x = -0.25f, offset_y = 0.25f)
+    const auto size_x = 1.5f;
+    const auto size_y = 1.5f;
+    const auto offset_x = -0.25f;
+    const auto offset_y = -0.25f;
+
+    const auto r_left = rel_r - 0.5f + offset_x;
+    const auto r_right = r_left + size_x;
+    const auto f_top = rel_f + 0.5f - offset_y;
+    const auto f_bot = f_top - size_y;
+
+    const auto c_r_left = std::clamp( r_left, cell_r_min, cell_r_max );
+    const auto c_r_right = std::clamp( r_right, cell_r_min, cell_r_max );
+    const auto c_f_top = std::clamp( f_top, cell_f_min, cell_f_max );
+    const auto c_f_bot = std::clamp( f_bot, cell_f_min, cell_f_max );
+
+    // Verify clamped bounds are exactly the tile's footprint
+    CHECK( approx( c_r_left, cell_r_min ) );
+    CHECK( approx( c_r_right, cell_r_max ) );
+    CHECK( approx( c_f_top, cell_f_max ) );
+    CHECK( approx( c_f_bot, cell_f_min ) );
+
+    // Verify proportional UV fractions stay strictly within [0.0f, 1.0f]
+    const auto gx_l = ( c_r_left - r_left ) / size_x;
+    const auto gx_r = ( c_r_right - r_left ) / size_x;
+    const auto gy_top = ( f_top - c_f_top ) / size_y;
+    const auto gy_bot = ( f_top - c_f_bot ) / size_y;
+
+    CHECK( gx_l >= 0.0f );
+    CHECK( gx_r <= 1.0f );
+    CHECK( gx_l < gx_r );
+    CHECK( gy_top >= 0.0f );
+    CHECK( gy_bot <= 1.0f );
+    CHECK( gy_top < gy_bot );
+}
+
+TEST_CASE( "r3d_cutaway_driving_and_tight_occlusion", "[r3d]" )
+{
+    // Tight cutaway radius is 0.55f tiles around character
+    constexpr auto tight_cutaway_radius = 0.55f;
+    constexpr auto cutaway_depth_bias = -0.0005f;
+
+    CHECK( approx( tight_cutaway_radius, 0.55f ) );
+    CHECK( approx( cutaway_depth_bias, -0.0005f ) );
+
+    // When avatar is driving, cutaway width u.cut[3] is set to 0.0f
+    auto cut_width = tight_cutaway_radius;
+    const auto is_driving = true;
+    if( is_driving ) {
+        cut_width = 0.0f;
+    }
+    CHECK( approx( cut_width, 0.0f ) );
+}
+

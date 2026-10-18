@@ -326,6 +326,33 @@ auto make_solid_uvs( const sprite_ref &s ) -> uvs_t
     return uvs_t{{ { u_mid, v_mid }, { u_mid, v_mid }, { u_mid, v_mid }, { u_mid, v_mid } }};
 }
 
+auto map_sprite_uv( const sprite_ref &s, float gx, float gy ) -> std::array<float, 2>
+{
+    const auto ul = static_cast<float>( s.flip ? s.u1 : s.u0 );
+    const auto ur = static_cast<float>( s.flip ? s.u0 : s.u1 );
+    auto sx = 0.0f;
+    auto sy = 0.0f;
+    switch( s.quarter_turns & 3 ) {
+        case 0:
+            sx = gx;
+            sy = gy;
+            break;
+        case 1:
+            sx = gy;
+            sy = 1.0f - gx;
+            break;
+        case 2:
+            sx = 1.0f - gx;
+            sy = 1.0f - gy;
+            break;
+        case 3:
+            sx = 1.0f - gy;
+            sy = gx;
+            break;
+    }
+    return std::array<float, 2>{ ul + ( ur - ul ) * sx, s.v0 + ( s.v1 - s.v0 ) * sy };
+}
+
 auto emit_vehicle_tile_quads( const emit_vehicle_tile_quads_options &options ) -> void
 {
     auto &sink = options.sink;
@@ -335,6 +362,11 @@ auto emit_vehicle_tile_quads( const emit_vehicle_tile_quads_options &options ) -
     const auto z = options.z;
     const auto color = options.color;
     const auto &transform = options.transform;
+
+    const auto cell_f_min = static_cast<float>( rel_forward - 0.5f );
+    const auto cell_f_max = static_cast<float>( rel_forward + 0.5f );
+    const auto cell_r_min = static_cast<float>( rel_right - 0.5f );
+    const auto cell_r_max = static_cast<float>( rel_right + 0.5f );
 
     auto lift = static_cast<float>( 0.0f );
     for( const sprite_ref *sprite : { &info.backdrop, &info.sprite } ) {
@@ -347,10 +379,30 @@ auto emit_vehicle_tile_quads( const emit_vehicle_tile_quads_options &options ) -
         const auto f_top = static_cast<float>( rel_forward + 0.5f - s.offset_y );
         const auto f_bot = static_cast<float>( f_top - s.size_y );
 
-        const auto p0 = transform.apply( f_top, r_left );
-        const auto p1 = transform.apply( f_top, r_right );
-        const auto p2 = transform.apply( f_bot, r_right );
-        const auto p3 = transform.apply( f_bot, r_left );
+        const auto c_r_left = std::clamp( r_left, cell_r_min, cell_r_max );
+        const auto c_r_right = std::clamp( r_right, cell_r_min, cell_r_max );
+        const auto c_f_top = std::clamp( f_top, cell_f_min, cell_f_max );
+        const auto c_f_bot = std::clamp( f_bot, cell_f_min, cell_f_max );
+
+        if( c_r_right <= c_r_left || c_f_top <= c_f_bot ) {
+            continue;
+        }
+
+        const auto gx_l = ( c_r_left - r_left ) / std::max( s.size_x, 0.001f );
+        const auto gx_r = ( c_r_right - r_left ) / std::max( s.size_x, 0.001f );
+        const auto gy_top = ( f_top - c_f_top ) / std::max( s.size_y, 0.001f );
+        const auto gy_bot = ( f_top - c_f_bot ) / std::max( s.size_y, 0.001f );
+
+        const auto p0 = transform.apply( c_f_top, c_r_left );
+        const auto p1 = transform.apply( c_f_top, c_r_right );
+        const auto p2 = transform.apply( c_f_bot, c_r_right );
+        const auto p3 = transform.apply( c_f_bot, c_r_left );
+
+        const auto uv0 = map_sprite_uv( s, gx_l, gy_top );
+        const auto uv1 = map_sprite_uv( s, gx_r, gy_top );
+        const auto uv2 = map_sprite_uv( s, gx_r, gy_bot );
+        const auto uv3 = map_sprite_uv( s, gx_l, gy_bot );
+
         const auto cur_z = static_cast<float>( z + lift );
         const auto corners = corners_t{{
             { p0.x, p0.y, cur_z },
@@ -358,7 +410,8 @@ auto emit_vehicle_tile_quads( const emit_vehicle_tile_quads_options &options ) -
             { p2.x, p2.y, cur_z },
             { p3.x, p3.y, cur_z }
         }};
-        sink.add_colored( { .sprite = s, .corners = corners, .uvs = make_sprite_uvs( s ), .ref = light_ref{}, .color = no_pull( color ) } );
+        const auto uvs = uvs_t{{ uv0, uv1, uv2, uv3 }};
+        sink.add_colored( { .sprite = s, .corners = corners, .uvs = uvs, .ref = light_ref{}, .color = no_pull( color ) } );
         lift += 0.004f;
     }
 }
@@ -402,7 +455,7 @@ auto add_vehicles( const add_vehicles_options &options ) -> void
             continue;
         }
 
-        const auto pivot_mnt = veh.pivot_point();
+        const auto pivot_mnt = veh.pivot_anchor[0];
         const auto pivot_sx = static_cast<float>( veh_bub.x() - view.center.x() ) + 0.5f;
         const auto pivot_sy = static_cast<float>( veh_bub.y() - view.center.y() ) + 0.5f;
         const auto theta = static_cast<float>( units::to_radians( veh.face.dir() ) );
@@ -781,26 +834,33 @@ auto add_vehicles( const add_vehicles_options &options ) -> void
                     { p_rear_r.x, p_rear_r.y, z_base + vehicle_bumper_h }, { p_rear_l.x, p_rear_l.y, z_base + vehicle_bumper_h }
                 }};
                 sink.add_colored( { .sprite = ms, .corners = c_bevel, .uvs = make_sprite_uvs( ms ), .ref = light_ref{}, .color = no_pull( cell.light ) } );
-            } else if( cell.show_roof && cell.has_roof && roof_sprite_opt.has_value() && roof_sprite_opt->get().main().valid ) {
-                // Inset outer roof perimeter by 0.05f so it sits inside the window pillars
-                auto f_top = static_cast<float>( rel_forward + 0.5f );
-                auto f_bot = static_cast<float>( rel_forward - 0.5f );
-                auto r_r = static_cast<float>( rel_right + 0.5f );
-                auto r_l = static_cast<float>( rel_right - 0.5f );
-                if( nit_fwd == cells.end() || !nit_fwd->second.has_roof ) {
-                    f_top -= 0.05f;
-                }
-                if( nit_rear == cells.end() || !nit_rear->second.has_roof ) {
-                    f_bot += 0.05f;
-                }
-                if( nit_right == cells.end() || !nit_right->second.has_roof ) {
-                    r_r -= 0.05f;
-                }
-                if( nit_left == cells.end() || !nit_left->second.has_roof ) {
-                    r_l += 0.05f;
+            } else if( cell.show_roof && cell.has_roof ) {
+                // 1a. Emit interior floor and parts under the roof
+                if( main_sprite_opt.has_value() && main_sprite_opt->get().main().valid ) {
+                    if( side_spr && side_spr->valid ) {
+                        // Solid floor base under the seats/interior
+                        const auto p0 = transform.apply( rel_forward + 0.5f, rel_right - 0.5f );
+                        const auto p1 = transform.apply( rel_forward + 0.5f, rel_right + 0.5f );
+                        const auto p2 = transform.apply( rel_forward - 0.5f, rel_right + 0.5f );
+                        const auto p3 = transform.apply( rel_forward - 0.5f, rel_right - 0.5f );
+                        const auto z_floor = static_cast<float>( z_base + chassis_floor_h );
+                        const auto c_floor = corners_t{{
+                            { p0.x, p0.y, z_floor }, { p1.x, p1.y, z_floor },
+                            { p2.x, p2.y, z_floor }, { p3.x, p3.y, z_floor }
+                        }};
+                        sink.add_colored( { .sprite = *side_spr, .corners = c_floor, .uvs = make_solid_uvs( *side_spr ),
+                                            .ref = light_ref{}, .color = no_pull( modulate_light( cell.light, 0.70f ) ) } );
+                    }
+                    emit_vehicle_tile_quads( { .sink = sink, .info = main_sprite_opt->get(), .rel_forward = rel_forward,
+                                               .rel_right = rel_right, .z = z_base + chassis_floor_h + 0.002f, .color = cell.light,
+                                               .transform = transform } );
                 }
 
-                const auto &rs = roof_sprite_opt->get().main();
+                // 1b. Emit solid watertight roof cap at 0.85f
+                const auto f_top = static_cast<float>( rel_forward + 0.5f );
+                const auto f_bot = static_cast<float>( rel_forward - 0.5f );
+                const auto r_r = static_cast<float>( rel_right + 0.5f );
+                const auto r_l = static_cast<float>( rel_right - 0.5f );
                 const auto p0 = transform.apply( f_top, r_l );
                 const auto p1 = transform.apply( f_top, r_r );
                 const auto p2 = transform.apply( f_bot, r_r );
@@ -810,10 +870,34 @@ auto add_vehicles( const add_vehicles_options &options ) -> void
                     { p0.x, p0.y, z_roof }, { p1.x, p1.y, z_roof },
                     { p2.x, p2.y, z_roof }, { p3.x, p3.y, z_roof }
                 }};
-                sink.add_colored( { .sprite = rs, .corners = c_roof, .uvs = make_sprite_uvs( rs ), .ref = light_ref{}, .color = no_pull( cell.light ) } );
+
+                if( side_spr && side_spr->valid ) {
+                    // Solid opaque roof under-cap
+                    sink.add_colored( { .sprite = *side_spr, .corners = c_roof, .uvs = make_solid_uvs( *side_spr ),
+                                        .ref = light_ref{}, .color = no_pull( modulate_light( cell.light, 0.95f ) ) } );
+                }
+
+                if( roof_sprite_opt.has_value() && roof_sprite_opt->get().main().valid ) {
+                    const auto &rs = roof_sprite_opt->get().main();
+                    sink.add_colored( { .sprite = rs, .corners = c_roof, .uvs = make_sprite_uvs( rs ), .ref = light_ref{}, .color = no_pull( cell.light ) } );
+                }
             } else if( main_sprite_opt.has_value() && main_sprite_opt->get().main().valid ) {
+                if( cell.is_interior && side_spr && side_spr->valid ) {
+                    // Solid floor under-layer for unroofed interior
+                    const auto p0 = transform.apply( rel_forward + 0.5f, rel_right - 0.5f );
+                    const auto p1 = transform.apply( rel_forward + 0.5f, rel_right + 0.5f );
+                    const auto p2 = transform.apply( rel_forward - 0.5f, rel_right + 0.5f );
+                    const auto p3 = transform.apply( rel_forward - 0.5f, rel_right - 0.5f );
+                    const auto z_floor = static_cast<float>( z_base + cell.height );
+                    const auto c_floor = corners_t{{
+                        { p0.x, p0.y, z_floor }, { p1.x, p1.y, z_floor },
+                        { p2.x, p2.y, z_floor }, { p3.x, p3.y, z_floor }
+                    }};
+                    sink.add_colored( { .sprite = *side_spr, .corners = c_floor, .uvs = make_solid_uvs( *side_spr ),
+                                        .ref = light_ref{}, .color = no_pull( modulate_light( cell.light, 0.70f ) ) } );
+                }
                 emit_vehicle_tile_quads( { .sink = sink, .info = main_sprite_opt->get(), .rel_forward = rel_forward,
-                                           .rel_right = rel_right, .z = z_base + cell.height, .color = cell.light,
+                                           .rel_right = rel_right, .z = z_base + cell.height + 0.002f, .color = cell.light,
                                            .transform = transform } );
             }
 
