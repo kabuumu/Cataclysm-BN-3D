@@ -438,10 +438,15 @@ TEST_CASE( "r3d_terrain_shapes", "[r3d]" )
     t = {};
     t.door = true;
     t.move_cost = 0;
-    CHECK( r3d::classify_terrain( t ).kind == r3d::shape_kind::pane );
-    // An open door lies flat; a wall stays a wall.
+    // Open doors and doorframes stand in the wall line as panes.
     t.flat = true;
+    t.open_door = true;
     t.move_cost = 2;
+    CHECK( r3d::classify_terrain( t ).kind == r3d::shape_kind::pane );
+    // A non-door flat terrain classifies as floor.
+    t = {};
+    t.flat = true;
+    t.move_cost = 0;
     CHECK( r3d::classify_terrain( t ).kind == r3d::shape_kind::floor );
     t = {};
     t.door = true;

@@ -312,7 +312,12 @@ auto column_height( state &s, const map &here, const tripoint_bub_ms &p ) -> flo
     if( !here.inbounds( p ) ) {
         return 0.0f;
     }
-    const auto t = shape( s.cache.terrain( { .id = here.ter( p ), .tiles = *tilecontext } ).sh );
+    const auto &t_info = s.cache.terrain( { .id = here.ter( p ), .tiles = *tilecontext } );
+    if( t_info.open_door ) {
+        const auto furn_h = s.cache.furniture( { .id = here.furn( p ), .tiles = *tilecontext } ).sh.height;
+        return std::min( std::max( floor_height, furn_h ), 1.0f );
+    }
+    const auto t = shape( t_info.sh );
     auto h = static_cast<float>( t.height );
     if( t.kind == shape_kind::floor ) {
         h = std::max( h, s.cache.furniture( { .id = here.furn( p ), .tiles = *tilecontext } ).sh.height );
