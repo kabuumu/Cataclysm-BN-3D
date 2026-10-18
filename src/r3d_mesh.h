@@ -132,7 +132,7 @@ class tile_info_cache
             int rota = 0;
         };
 
-        auto terrain( const terrain_options &options ) -> const tile_info &; // *NOPAD*
+        auto terrain( const terrain_options &options ) -> const tile_info &; // *NOPAD* // *NOPAD*
         struct furniture_options {
             furn_id id;
             cata_tiles &tiles;
@@ -140,7 +140,7 @@ class tile_info_cache
             int rota = 0;
         };
 
-        auto furniture( const furniture_options &options ) -> const tile_info &; // *NOPAD*
+        auto furniture( const furniture_options &options ) -> const tile_info &; // *NOPAD* // *NOPAD*
         /// Sprite layers by tileset id, e.g. a monster type or "player_male".
         /// Subtile, rotation and variant are part of the cache key (vehicle part state).
         struct named_options {
@@ -152,9 +152,9 @@ class tile_info_cache
             const std::string &variant = "";
         };
 
-        auto named( const named_options &options ) -> const tile_info &; // *NOPAD*
+        auto named( const named_options &options ) -> const tile_info &; // *NOPAD* // *NOPAD*
         /// Ground drawn under trees and bushes, which are terrain with a transparent background.
-        auto ground( cata_tiles &tiles ) -> const tile_info &; // *NOPAD*
+        auto ground( cata_tiles &tiles ) -> const tile_info &; // *NOPAD* // *NOPAD*
 
     private:
         std::unordered_map<int, tile_info> terrain_;

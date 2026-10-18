@@ -16,9 +16,9 @@
 
 See the [3D build, controls, and capture guide](docs/en/dev/guides/renderer_3d.md).
 The renderer is experimental. Linux builds and capture reports have been tested;
-native macOS and Windows execution has not yet been verified. The UI overhaul,
-first-person camera, and guided onboarding are separate feature ports in progress,
-not features included in this main branch yet.
+native macOS and Windows execution has not yet been verified. This branch includes the native UI overhaul and 3D overlays.
+See the [Native BN UI and 3D overlays](docs/en/dev/guides/ui_overhaul.md).
+Other feature ports remain on separate branches.
 
 ## LLM disclosure
 

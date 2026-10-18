@@ -3711,6 +3711,7 @@ input_context get_default_mode_input_context()
         ctxt.register_action( "r3d_zoom_in" );
         ctxt.register_action( "r3d_zoom_out" );
         ctxt.register_action( "r3d_reset" );
+        ctxt.register_action( "status_report" );
 
     }
 #if !defined(__ANDROID__)

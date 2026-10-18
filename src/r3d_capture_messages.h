@@ -14,7 +14,7 @@ class capture_read_guard
         capture_read_guard() : previous_( capture_read_frozen ) { capture_read_frozen = true; }
         ~capture_read_guard() { capture_read_frozen = previous_; }
         capture_read_guard( const capture_read_guard & ) = delete;
-        auto operator=( const capture_read_guard & ) -> capture_read_guard & = delete; // *NOPAD*
+        auto operator=( const capture_read_guard & ) -> capture_read_guard & = delete; // *NOPAD* // *NOPAD*
 };
 }
 #endif

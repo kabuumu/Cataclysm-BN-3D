@@ -1105,7 +1105,7 @@ auto orientation_key( int id, int subtile, int rota ) -> int
 { return id * 128 + ( subtile + 1 ) * 8 + ( rota + 1 ); }
 } // namespace
 
-auto tile_info_cache::terrain( const terrain_options &options ) -> const tile_info &
+auto tile_info_cache::terrain( const terrain_options &options ) -> const tile_info & // *NOPAD*
 {
     auto id = options.id;
     auto &tiles = options.tiles;
@@ -1210,7 +1210,7 @@ auto tile_info_cache::terrain( const terrain_options &options ) -> const tile_in
     return terrain_.emplace( key, info ).first->second;
 }
 
-auto tile_info_cache::named( const named_options &options ) -> const tile_info &
+auto tile_info_cache::named( const named_options &options ) -> const tile_info & // *NOPAD*
 {
     auto category = options.category;
     const auto &id = options.id;
@@ -1231,7 +1231,7 @@ auto tile_info_cache::named( const named_options &options ) -> const tile_info &
     return named_.emplace( key, info ).first->second;
 }
 
-auto tile_info_cache::furniture( const furniture_options &options ) -> const tile_info &
+auto tile_info_cache::furniture( const furniture_options &options ) -> const tile_info & // *NOPAD*
 {
     auto id = options.id;
     auto &tiles = options.tiles;
@@ -1282,7 +1282,7 @@ auto tile_info_cache::furniture( const furniture_options &options ) -> const til
     return furniture_.emplace( key, info ).first->second;
 }
 
-auto tile_info_cache::ground( cata_tiles &tiles ) -> const tile_info &
+auto tile_info_cache::ground( cata_tiles &tiles ) -> const tile_info & // *NOPAD*
 {
     if( !ground_loaded_ ) {
         resolve_layers( { .tiles = tiles, .id = "t_grass", .category = C_TERRAIN, .out = ground_ } );
@@ -1583,8 +1583,8 @@ auto build_chunk_mesh( const build_chunk_mesh_options &options ) -> chunk_mesh
             if( self->get_furn( p ) != furn_str_id::NULL_ID() ) {
                 tiles.get_orientation( { .pos = bub, .furniture = true, .subtile = furn_subtile, .rotation = furn_rota } );
             }
-            const tile_info &terrain = cache.terrain( { .id = self->get_ter( p ), .tiles = tiles, .subtile = ter_subtile, .rota = ter_rota } );
-            const tile_info &furn = cache.furniture( { .id = self->get_furn( p ), .tiles = tiles, .subtile = furn_subtile, .rota = furn_rota } );
+            const auto &terrain = cache.terrain( { .id = self->get_ter( p ), .tiles = tiles, .subtile = ter_subtile, .rota = ter_rota } );
+            const auto &furn = cache.furniture( { .id = self->get_furn( p ), .tiles = tiles, .subtile = furn_subtile, .rota = furn_rota } );
             auto nb = neighbourhood{};
             nb.up = up[static_cast<size_t>( ly * side + lx )];
             nb.north = level_at( lx, ly - 1 );

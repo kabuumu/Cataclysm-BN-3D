@@ -1606,6 +1606,31 @@ static bool draw_window( Font_Ptr &font, const catacurses::window &w )
     return draw_window( font, w, point( win->pos.x * ::fontwidth, win->pos.y * ::fontheight ) );
 }
 
+namespace
+{
+auto draw_r3d_hud_texts() -> void
+{
+    if( !map_font ) { return; }
+    for( const auto &t : r3d::hud_texts() ) {
+        const auto width = float( utf8_width( t.text ) * map_font->width );
+        const auto left = t.align < 0 ? t.x : t.align > 0 ? t.x - width : t.x - width * 0.5f;
+        if( t.boxed ) {
+            auto blend = SDL_BLENDMODE_NONE;
+            auto red = Uint8{}; auto green = Uint8{}; auto blue = Uint8{}; auto alpha = Uint8{};
+            SDL_GetRenderDrawBlendMode( renderer.get(), &blend );
+            SDL_GetRenderDrawColor( renderer.get(), &red, &green, &blue, &alpha );
+            SDL_SetRenderDrawBlendMode( renderer.get(), SDL_BLENDMODE_BLEND );
+            SDL_SetRenderDrawColor( renderer.get(), 0, 0, 0, 170 );
+            const auto box = SDL_FRect{ left - 3, t.y - 1, width + 6, float( map_font->height ) + 2 };
+            SDL_RenderFillRect( renderer.get(), &box );
+            SDL_SetRenderDrawBlendMode( renderer.get(), blend );
+            SDL_SetRenderDrawColor( renderer.get(), red, green, blue, alpha );
+        }
+        draw_string( *map_font, renderer, geometry, t.text, point( int( left ), int( t.y ) ), t.color );
+    }
+}
+}
+
 void cata_cursesport::curses_drawwindow( const catacurses::window &w )
 {
     if( clear_display_buffer_before_redraw ) {
@@ -1643,11 +1668,12 @@ void cata_cursesport::curses_drawwindow( const catacurses::window &w )
             draw_flat();
             tilecontext->restore_frame_markers( markers );
         }
+        if( map_font ) { r3d::set_text_cell( map_font->width, map_font->height ); }
         const auto drawn_3d = r3d::draw( { .renderer = renderer.get(), .x = float( win->pos.x * fontwidth ),
                                            .y = float( win->pos.y * fontheight ), .w = float( TERRAIN_WINDOW_TERM_WIDTH * font->width ),
                                            .h = float( TERRAIN_WINDOW_TERM_HEIGHT * font->height ), .center = g->ter_view_p, .render_epoch = 0 } );
         if( !drawn_3d ) { draw_flat(); }
-        else { overlay_strings.clear(); color_blocks.second.clear(); }
+        else { overlay_strings.clear(); color_blocks.second.clear(); draw_r3d_hud_texts(); }
 
         // color blocks overlay
         if( !color_blocks.second.empty() ) {
