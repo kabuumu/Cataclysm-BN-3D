@@ -8,6 +8,7 @@ struct FragmentInput {
     float height : TEXCOORD3;
     nointerpolation float4 cut : TEXCOORD4;
     nointerpolation float2 cut2 : TEXCOORD5;
+    nointerpolation float occlude : TEXCOORD6;
 };
 float4 main(FragmentInput input) : SV_Target0 {
     float rim = 1.0;
@@ -19,6 +20,9 @@ float4 main(FragmentInput input) : SV_Target0 {
     }
     const float4 texel = atlas.Sample(atlas_sampler, input.uv);
     if (texel.a < 0.75) { discard; }
-    if (max(input.light.r, max(input.light.g, input.light.b)) < 0.5 / 255.0) { discard; }
+    if (max(input.light.r, max(input.light.g, input.light.b)) < 0.5 / 255.0) {
+        if (input.occlude > 0.5) { return float4(0, 0, 0, 1); }
+        discard;
+    }
     return float4(texel.rgb * input.light.rgb * rim, 1.0);
 }

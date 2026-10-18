@@ -5,6 +5,7 @@ cbuffer params : register(b0, space1) {
     float4 pull;
     float4 cut;
     float4 cut2;
+    float4 flags;
 };
 struct VertexInput {
     float3 position : TEXCOORD0;
@@ -19,6 +20,7 @@ struct VertexOutput {
     float height : TEXCOORD3;
     nointerpolation float4 cut : TEXCOORD4;
     nointerpolation float2 cut2 : TEXCOORD5;
+    nointerpolation float occlude : TEXCOORD6;
 };
 VertexOutput main(VertexInput input) {
     VertexOutput output;
@@ -35,5 +37,6 @@ VertexOutput main(VertexInput input) {
     output.height = position.z;
     output.cut = cut;
     output.cut2 = cut2.xy;
+    output.occlude = flags.x;
     return output;
 }

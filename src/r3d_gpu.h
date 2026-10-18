@@ -36,8 +36,12 @@ struct block_uniforms {
     // view's forward direction on the ground, z the hole's half-length along it.
     float cut[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     float cut2[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+
+    // x: 1 draws places never seen (lit black) as solid black that hides what is behind them,
+    // 0 leaves them out (see r3d_block.frag); yzw unused.
+    float flags[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
-static_assert( sizeof( block_uniforms ) == 128, "block_uniforms is mirrored by r3d_block.vert" );
+static_assert( sizeof( block_uniforms ) == 144, "block_uniforms is mirrored by r3d_block.vert" );
 
 /// Owns the GPU objects of the 3D renderer: pipelines, sampler, and the offscreen colour+depth
 /// target that gets composited into the SDL_Renderer scene. It shares the SDL_Renderer's own

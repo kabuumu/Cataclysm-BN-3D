@@ -3711,6 +3711,8 @@ input_context get_default_mode_input_context()
         ctxt.register_action( "r3d_zoom_in" );
         ctxt.register_action( "r3d_zoom_out" );
         ctxt.register_action( "r3d_reset" );
+        ctxt.register_action( "r3d_first_person" );
+        ctxt.register_action( "r3d_fp_face_threat" );
 
     }
 #if !defined(__ANDROID__)
@@ -10044,6 +10046,7 @@ look_around_result game::look_around( bool show_window, tripoint_bub_ms &center,
     ctxt.register_action( "TOGGLE_FAST_SCROLL" );
     ctxt.register_action( "EXTENDED_DESCRIPTION" );
     ctxt.register_action( "SELECT" );
+    if( r3d::first_person() ) { ctxt.register_action( "r3d_fp_select_ahead" ); }
     if( peeking ) {
         ctxt.register_action( "throw_blind" );
     }
@@ -10271,6 +10274,8 @@ look_around_result game::look_around( bool show_window, tripoint_bub_ms &center,
             toggle_debug_hour_timer();
         } else if( action == "EXTENDED_DESCRIPTION" ) {
             extended_description( lp );
+        } else if( action == "r3d_fp_select_ahead" ) {
+            if( const auto ahead = r3d::crosshair() ) { lx = ahead->x(); ly = ahead->y(); }
         } else if( action == "CENTER" ) {
             center = u.bub_pos();
             lp = u.bub_pos();

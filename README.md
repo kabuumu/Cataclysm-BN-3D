@@ -16,9 +16,9 @@
 
 See the [3D build, controls, and capture guide](docs/en/dev/guides/renderer_3d.md).
 The renderer is experimental. Linux builds and capture reports have been tested;
-native macOS and Windows execution has not yet been verified. The UI overhaul,
-first-person camera, and guided onboarding are separate feature ports in progress,
-not features included in this main branch yet.
+native macOS and Windows execution has not yet been verified. This `feat/first-person` branch also includes the
+[first-person camera](docs/en/dev/guides/first_person.md). The UI overhaul and
+guided onboarding are separate feature ports.
 
 ## LLM disclosure
 

@@ -1606,6 +1606,20 @@ static bool draw_window( Font_Ptr &font, const catacurses::window &w )
     return draw_window( font, w, point( win->pos.x * ::fontwidth, win->pos.y * ::fontheight ) );
 }
 
+namespace
+{
+auto draw_r3d_hud_texts() -> void
+{
+    for( const auto &t : r3d::hud_texts() ) {
+        const auto width = utf8_width( t.text ) * font->width;
+        const auto origin = point( static_cast<int>( t.x ) - ( t.centred ? width / 2 : 0 ),
+                                   static_cast<int>( t.y ) );
+        draw_string( *font, renderer, geometry, t.text, origin + point( 1, 1 ), 0 );
+        draw_string( *font, renderer, geometry, t.text, origin, t.color );
+    }
+}
+}
+
 void cata_cursesport::curses_drawwindow( const catacurses::window &w )
 {
     if( clear_display_buffer_before_redraw ) {
@@ -1643,11 +1657,12 @@ void cata_cursesport::curses_drawwindow( const catacurses::window &w )
             draw_flat();
             tilecontext->restore_frame_markers( markers );
         }
+        r3d::set_hud_font( font->width, font->height );
         const auto drawn_3d = r3d::draw( { .renderer = renderer.get(), .x = float( win->pos.x * fontwidth ),
                                            .y = float( win->pos.y * fontheight ), .w = float( TERRAIN_WINDOW_TERM_WIDTH * font->width ),
                                            .h = float( TERRAIN_WINDOW_TERM_HEIGHT * font->height ), .center = g->ter_view_p, .render_epoch = 0 } );
         if( !drawn_3d ) { draw_flat(); }
-        else { overlay_strings.clear(); color_blocks.second.clear(); }
+        else { overlay_strings.clear(); color_blocks.second.clear(); draw_r3d_hud_texts(); }
 
         // color blocks overlay
         if( !color_blocks.second.empty() ) {
@@ -3438,7 +3453,13 @@ static void CheckMessages()
                 break;
 
             case SDL_EVENT_MOUSE_BUTTON_UP:
-                if( ev.button.button == SDL_BUTTON_MIDDLE ) { r3d_dragging = false; }
+                if( ev.button.button == SDL_BUTTON_MIDDLE ) {
+                    r3d_dragging = false;
+                    r3d::end_glance();
+                    if( g ) { g->invalidate_main_ui_adaptor(); }
+                    ui_manager::redraw_invalidated();
+                    needupdate = true;
+                }
                 switch( ev.button.button ) {
                     case SDL_BUTTON_LEFT:
                         last_input = input_event( MOUSE_BUTTON_LEFT, input_event_t::mouse );
@@ -4000,11 +4021,22 @@ input_event input_manager::get_input_event()
     }
 
     r3d::compare_capture( false );
+    r3d::fp_shots_capture();
 
     if( inputdelay < 0 ) {
         ZoneScopedN( "sdl_input_wait_blocking" );
         do {
             CheckMessages();
+            if( r3d::animating() ) {
+                static auto last_fp_frame = Uint64{};
+                const auto now = SDL_GetTicks();
+                if( now - last_fp_frame >= 16 ) {
+                    last_fp_frame = now;
+                    if( g ) { g->invalidate_main_ui_adaptor(); }
+                    ui_manager::redraw_invalidated();
+                    needupdate = true;
+                }
+            }
             if( last_input.type != input_event_t::error ) {
                 break;
             }
@@ -4017,6 +4049,16 @@ input_event input_manager::get_input_event()
         bool timedout = false;
         do {
             CheckMessages();
+            if( r3d::animating() ) {
+                static auto last_fp_frame = Uint64{};
+                const auto now = SDL_GetTicks();
+                if( now - last_fp_frame >= 16 ) {
+                    last_fp_frame = now;
+                    if( g ) { g->invalidate_main_ui_adaptor(); }
+                    ui_manager::redraw_invalidated();
+                    needupdate = true;
+                }
+            }
             endtime = SDL_GetTicks();
             if( last_input.type != input_event_t::error ) {
                 break;
