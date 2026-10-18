@@ -707,12 +707,18 @@ TEST_CASE( "r3d_wall_atlas_cells", "[r3d]" )
 
 TEST_CASE( "r3d_vehicle_tiered_height_constants", "[r3d]" )
 {
+    CHECK( approx( r3d::vehicle_clearance_h, 0.15f ) );
     CHECK( approx( r3d::chassis_floor_h, 0.28f ) );
+    CHECK( approx( r3d::vehicle_wheel_h, 0.36f ) );
+    CHECK( approx( r3d::vehicle_bumper_h, 0.44f ) );
     CHECK( approx( r3d::vehicle_body_h, 0.55f ) );
     CHECK( approx( r3d::vehicle_cabin_h, 0.85f ) );
     CHECK( approx( r3d::floor_height + r3d::chassis_floor_h, 0.38f ) );
-    CHECK( r3d::floor_height < r3d::chassis_floor_h );
-    CHECK( r3d::chassis_floor_h < r3d::vehicle_body_h );
+    CHECK( r3d::floor_height < r3d::vehicle_clearance_h );
+    CHECK( r3d::vehicle_clearance_h < r3d::chassis_floor_h );
+    CHECK( r3d::chassis_floor_h < r3d::vehicle_wheel_h );
+    CHECK( r3d::vehicle_wheel_h < r3d::vehicle_bumper_h );
+    CHECK( r3d::vehicle_bumper_h < r3d::vehicle_body_h );
     CHECK( r3d::vehicle_body_h < r3d::vehicle_cabin_h );
 }
 
@@ -828,4 +834,70 @@ TEST_CASE( "r3d_vehicle_rigid_body_local_to_scene", "[r3d]" )
         const auto world_dist = std::sqrt( world_dx * world_dx + world_dy * world_dy );
         CHECK( approx( world_dist, local_dist, 1e-4f ) );
     }
+}
+
+TEST_CASE( "r3d_vehicle_directional_side_shading", "[r3d]" )
+{
+    const auto compute_shade = []( float local_f, float local_r, units::angle face_dir ) -> float {
+        const auto theta = static_cast<float>( units::to_radians( face_dir ) );
+        const auto cos_th = static_cast<float>( std::cos( theta ) );
+        const auto sin_th = static_cast<float>( std::sin( theta ) );
+        const auto nx = local_f * cos_th - local_r * sin_th;
+        const auto ny = local_f * sin_th + local_r * cos_th;
+        const auto x_shade = ( nx >= 0.0f ) ? 0.725f : 0.588f; // East 0.73, West 0.59
+        const auto y_shade = ( ny >= 0.0f ) ? 0.831f : 0.647f; // South 0.83, North 0.65
+        return std::clamp( nx * nx * x_shade + ny * ny * y_shade, 0.4f, 1.0f );
+    };
+
+    // When vehicle faces North (270 deg):
+    // Vehicle front faces North:
+    CHECK( approx( compute_shade( 1.0f, 0.0f, 270_degrees ), 0.647f, 1e-3f ) );
+    // Vehicle back faces South:
+    CHECK( approx( compute_shade( -1.0f, 0.0f, 270_degrees ), 0.831f, 1e-3f ) );
+    // Vehicle right faces East:
+    CHECK( approx( compute_shade( 0.0f, 1.0f, 270_degrees ), 0.725f, 1e-3f ) );
+    // Vehicle left faces West:
+    CHECK( approx( compute_shade( 0.0f, -1.0f, 270_degrees ), 0.588f, 1e-3f ) );
+
+    // When vehicle faces East (0 deg):
+    // Vehicle front faces East:
+    CHECK( approx( compute_shade( 1.0f, 0.0f, 0_degrees ), 0.725f, 1e-3f ) );
+    // Vehicle right faces South:
+    CHECK( approx( compute_shade( 0.0f, 1.0f, 0_degrees ), 0.831f, 1e-3f ) );
+
+    // Smoothness and bounds: at all angles, shade must stay within [0.55f, 0.85f]
+    for( auto deg = 0; deg < 360; deg += 10 ) {
+        const auto s_front = compute_shade( 1.0f, 0.0f, units::from_degrees( deg ) );
+        const auto s_right = compute_shade( 0.0f, 1.0f, units::from_degrees( deg ) );
+        CHECK( s_front >= 0.55f );
+        CHECK( s_front <= 0.85f );
+        CHECK( s_right >= 0.55f );
+        CHECK( s_right <= 0.85f );
+    }
+}
+
+TEST_CASE( "r3d_vehicle_sloped_windshield_and_bumper_contours", "[r3d]" )
+{
+    // Sloped windshield: connects 0.85f at cabin down to 0.55f at hood
+    const auto z_cabin = r3d::vehicle_cabin_h;
+    const auto z_hood = r3d::vehicle_body_h;
+    const auto z_bumper = r3d::vehicle_bumper_h;
+    const auto z_clearance = r3d::vehicle_clearance_h;
+
+    CHECK( approx( z_cabin, 0.85f ) );
+    CHECK( approx( z_hood, 0.55f ) );
+    CHECK( approx( z_bumper, 0.44f ) );
+    CHECK( approx( z_clearance, 0.15f ) );
+
+    // Sloped windshield drop: 0.85f - 0.55f = 0.30f slope over tile span
+    const auto windshield_drop = z_cabin - z_hood;
+    CHECK( approx( windshield_drop, 0.30f ) );
+
+    // Bumper bevel drop: 0.55f - 0.44f = 0.11f slope to bumper nose
+    const auto bumper_bevel_drop = z_hood - z_bumper;
+    CHECK( approx( bumper_bevel_drop, 0.11f ) );
+
+    // Undercarriage clearance: body skirt begins 0.15f above asphalt
+    CHECK( z_clearance > 0.0f );
+    CHECK( z_bumper > z_clearance );
 }

@@ -51,6 +51,9 @@ struct entity_view {
     std::function<float( const tripoint_bub_ms & )> surface;
 };
 
+/// Vehicles in the scene frame, rebuilt each frame for rigid-body rotation and animation.
+auto build_vehicle_mesh( const entity_view &view ) -> chunk_mesh;
+
 /// Billboards for creatures, the player and loose items near the viewed tile, in the scene frame
 /// (so drawn with a zero offset). Rebuilt every frame since they move.
 auto build_entity_mesh( const entity_view &view ) -> chunk_mesh;

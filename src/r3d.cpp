@@ -134,6 +134,13 @@ struct state {
     uint32_t dyn_position_bytes = 0;
     uint32_t dyn_light_bytes = 0;
     uint32_t dyn_index_bytes = 0;
+    // Per-frame buffers for vehicles, separate from entities for independent cutaway uniforms.
+    SDL_GPUBuffer *veh_positions = nullptr;
+    SDL_GPUBuffer *veh_lights = nullptr;
+    SDL_GPUBuffer *veh_indices = nullptr;
+    uint32_t veh_position_bytes = 0;
+    uint32_t veh_light_bytes = 0;
+    uint32_t veh_index_bytes = 0;
     shown_view shown;
     bool map_drawn = false; // the game's map view has been on screen (a game is running)
     vec3 pan; // free camera: offset of the camera target from the viewed tile, world space
@@ -162,6 +169,15 @@ auto release_dynamic( state &s ) -> void
     s.dyn_position_bytes = 0;
     s.dyn_light_bytes = 0;
     s.dyn_index_bytes = 0;
+    s.device.release_buffer( s.veh_positions );
+    s.device.release_buffer( s.veh_lights );
+    s.device.release_buffer( s.veh_indices );
+    s.veh_positions = nullptr;
+    s.veh_lights = nullptr;
+    s.veh_indices = nullptr;
+    s.veh_position_bytes = 0;
+    s.veh_light_bytes = 0;
+    s.veh_index_bytes = 0;
 }
 
 // Makes sure a dynamic buffer holds at least bytes, then queues the data for upload.
@@ -1499,6 +1515,17 @@ auto draw( const draw_options &options ) -> bool
         add_markers( queued.highlights, "highlight", false );
         add_markers( queued.cursors, "cursor", true );
     }
+    const auto vehicles = chunk_mesh( build_vehicle_mesh( entities_view ) );
+    const auto draw_vehicles = static_cast<bool>( !vehicles.empty() &&
+                               upload_dynamic( { .s = s, .buffer = s.veh_positions, .capacity = s.veh_position_bytes, .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
+                                       .data = vehicles.vertices.data(),
+                                       .bytes = static_cast<uint32_t>( vehicles.vertices.size() * sizeof( vertex ) ) } ) &&
+                               upload_dynamic( { .s = s, .buffer = s.veh_lights, .capacity = s.veh_light_bytes, .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
+                                       .data = vehicles.light.data(),
+                                       .bytes = static_cast<uint32_t>( vehicles.light.size() * sizeof( uint32_t ) ) } ) &&
+                               upload_dynamic( { .s = s, .buffer = s.veh_indices, .capacity = s.veh_index_bytes, .usage = SDL_GPU_BUFFERUSAGE_INDEX,
+                                       .data = vehicles.indices.data(),
+                                       .bytes = static_cast<uint32_t>( vehicles.indices.size() * sizeof( uint32_t ) ) } ) );
     const auto entities = chunk_mesh( build_entity_mesh( entities_view ) );
     const auto draw_entities = static_cast<bool>( !entities.empty() &&
                                upload_dynamic( { .s = s, .buffer = s.dyn_positions, .capacity = s.dyn_position_bytes, .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
@@ -1528,6 +1555,22 @@ auto draw( const draw_options &options ) -> bool
         for( const mesh_batch &b : vc.chunk->batches ) {
             s.device.draw_block( { .positions = vc.chunk->positions, .lights = vc.chunk->lights, .indices = vc.chunk->indices,
                                    .first_index = b.first_index, .index_count = b.index_count, .sheet = b.sheet, .uniforms = uniforms } );
+        }
+    }
+    if( draw_vehicles ) {
+        s.device.bind_entity_pipeline();
+        uniforms.offset[0] = 0.0f;
+        uniforms.offset[1] = 0.0f;
+        uniforms.offset[2] = 0.0f;
+        uniforms.pull[0] = 0.0f;
+        uniforms.pull[1] = 0.0f;
+        uniforms.pull[2] = 0.0f;
+        uniforms.pull[3] = 0.0f;
+        set_cutaway( { .u = uniforms, .view_proj = view_proj, .aspect = aspect, .cam = s.cam, .center = center } );
+        uniforms.cut2[1] = floor_height + 0.58f;
+        for( const mesh_batch &b : vehicles.batches ) {
+            s.device.draw_block( { .positions = s.veh_positions, .lights = s.veh_lights, .indices = s.veh_indices, .first_index = b.first_index, .index_count = b.index_count,
+                                   .sheet = b.sheet, .uniforms = uniforms } );
         }
     }
     if( draw_entities ) {
